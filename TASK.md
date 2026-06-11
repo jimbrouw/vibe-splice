@@ -51,11 +51,24 @@ Done (hardening pass, same day):
   Live result on "cam1 Copy": 50 segments, zero sub-frame error, source
   sequence untouched
 
+Done (source detection, same day):
+- Panel buttons 7/8: detect cameras from the active sequence — consecutive
+  single-clip video tracks from V1 are cameras (media path via
+  `ClipProjectItem.getMediaFilePath`, offset = startTicks − inPointTicks),
+  the track above the camera stack is the assembly target, fps derived from
+  `sequence.getTimebase()` as a reduced rational, length from `getEndTime()`
+- Live-verified: 3 cams detected with paths+offsets, 50 cuts via sidecar
+  with `offset_frames`, clone-applied, zero sub-frame error, exact match
+- Nothing about the fixture (paths, rate, length, track count) is
+  hardcoded in the detected path anymore
+
 Next:
-1. Real 3-cam footage regression (footage arrives week of 2026-06-15)
-2. Panel UI: source selection instead of hardcoded fixture paths; read
-   per-source offsets from the synced timeline
-3. Promote spike learnings into /panel + /adapters/premiere proper (M2)
+1. Real 3-cam footage regression (footage arrives week of 2026-06-15) —
+   the detected path (button 8) should work on it unchanged
+2. Promote spike learnings into /panel + /adapters/premiere proper (M2):
+   React+Spectrum panel, sidecar lifecycle management, progress UI
+3. Offset edge cases on real footage: trimmed-in cameras (inPoint > 0),
+   cameras starting mid-timeline
 
 ## Blocked on
 - Real footage (next week)

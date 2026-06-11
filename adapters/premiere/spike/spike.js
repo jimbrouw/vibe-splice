@@ -13,9 +13,9 @@
 const ppro = require("premierepro");
 
 // ---------- cut map (mirror of /tests/fixtures/cutmap.json — keep in sync) ----------
-const FPS_NUM = 30000;
-const FPS_DEN = 1001;
-const TOTAL_FRAMES = 17982;
+let FPS_NUM = 30000;
+let FPS_DEN = 1001;
+let TOTAL_FRAMES = 17982;
 const CUTS = [
   { frame: 0,     camera: 1 },
   { frame: 450,   camera: 2 },   // checkpoint: early
@@ -32,7 +32,20 @@ const CUTS = [
 ];
 
 const TICKS_PER_SECOND = 254016000000;
-const TICKS_PER_FRAME = (TICKS_PER_SECOND / FPS_NUM) * FPS_DEN; // 8475667200, exact integer
+// Mutable: source detection re-derives these from the active sequence's
+// timebase so nothing is hardcoded to the fixture rate.
+let TICKS_PER_FRAME = (TICKS_PER_SECOND / FPS_NUM) * FPS_DEN; // 8475667200 at 29.97
+
+function gcd(a, b) { while (b) [a, b] = [b, a % b]; return a; }
+
+function setRateFromTicksPerFrame(tpf) {
+  // fps = TICKS_PER_SECOND / tpf as a reduced rational.
+  const g = gcd(TICKS_PER_SECOND, tpf);
+  FPS_NUM = TICKS_PER_SECOND / g;
+  FPS_DEN = tpf / g;
+  TICKS_PER_FRAME = tpf;
+  info(`sequence rate: ${FPS_NUM}/${FPS_DEN} fps (${tpf} ticks/frame)`);
+}
 
 // ---------- logging ----------
 // Mirrors every log line to spike-log.txt in the plugin data folder so the
@@ -379,17 +392,23 @@ async function cloneToNewSequence(project, sequence) {
   throw new Error("clone executed but no new sequence found in project");
 }
 
-async function applyCutMap(cuts, totalFrames, label) {
-  info(`=== Apply onto V4: ${label}, ${cuts.length} cuts ===`);
+async function applyCutMap(cuts, totalFrames, label, det = null) {
+  const targetTrack = det ? det.target : 3;
+  info(`=== Apply onto V${targetTrack + 1}: ${label}, ${cuts.length} cuts ===`);
   const { project, sequence: source } = await getActive();
   await assertTimebase(source);
   const sequence = await cloneToNewSequence(project, source);
   const editor = await ppro.SequenceEditor.getEditor(sequence);
 
   const cams = [];
-  for (let i = 1; i <= 3; i++) cams.push(await findProjectItem(project, `cam${i}.mp4`));
+  if (det) {
+    for (const s of det.sources) cams.push(s.projItem);
+  } else {
+    for (let i = 1; i <= 3; i++) cams.push(await findProjectItem(project, `cam${i}.mp4`));
+  }
 
-  await clearVideoTrack(project, sequence, 3);
+  await clearVideoTrack(project, sequence, targetTrack);
+  lastTargetTrack = targetTrack;
 
   for (const iv of intervals(cuts, totalFrames)) {
     const startT = frameToTickTime(iv.start);
@@ -400,7 +419,7 @@ async function applyCutMap(cuts, totalFrames, label) {
       clip.createSetInOutPointsAction(startT, endT),
     ]);
     await execute(project, `A: overwrite cam${iv.camera} at frame ${iv.start}`, () => [
-      editor.createOverwriteItemAction(item, startT, 3, -1),
+      editor.createOverwriteItemAction(item, startT, targetTrack, -1),
     ]);
   }
   for (let i = 0; i < 3; i++) {
@@ -424,6 +443,95 @@ async function applyCutMap(cuts, totalFrames, label) {
   ok(`${label}: applied to V4 of "${sequence.name}". Run verify.`);
 }
 let lastAppliedSequence = null;
+let lastTargetTrack = 3;
+
+// ---------- 7/8. source detection from the synced timeline ----------
+// The user's prep (the 80% workflow): cameras stacked and synced on V1..Vn,
+// one clip per track. Detection reads, per track: the media path, and where
+// the media's t=0 sits on the timeline (start - inPoint -> offset_frames).
+// Camera tracks = the consecutive run of single-clip tracks from V1; the
+// track above them is the assembly target. Nothing is hardcoded.
+let detectedSources = null; // [{vIndex, camera, name, path, offsetFrames}]
+let detectedTarget = null;  // {vTrackIndex, totalFrames}
+
+async function detectSources() {
+  info("=== Detect sources from active sequence ===");
+  const { sequence } = await getActive();
+  const tb = await sequence.getTimebase();
+  setRateFromTicksPerFrame(Number(tb?.ticks ?? tb));
+
+  const endT = await sequence.getEndTime();
+  const totalFrames = Math.round(Number(endT.ticks) / TICKS_PER_FRAME);
+
+  const trackCount = await sequence.getVideoTrackCount();
+  const sources = [];
+  let target = null;
+  for (let v = 0; v < trackCount; v++) {
+    const items = await getVideoTrackItems(sequence, v);
+    if (items.length === 1 && target === null) {
+      const ti = items[0];
+      const proj = await ti.getProjectItem();
+      const clip = ppro.ClipProjectItem.cast(proj);
+      if (await clip.isSequence()) { target = v; continue; }
+      const path = await clip.getMediaFilePath();
+      const st = await ti.getStartTime();
+      const ip = await ti.getInPoint();
+      const offsetFrames = Math.round(
+        (Number(st.ticks) - Number(ip.ticks)) / TICKS_PER_FRAME
+      );
+      sources.push({
+        vIndex: v, camera: sources.length + 1, name: proj.name,
+        path, offsetFrames, projItem: proj,
+      });
+    } else if (target === null && sources.length) {
+      target = v; // first non-single-clip track above the camera stack
+    }
+  }
+  if (sources.length < 2) {
+    err(`only ${sources.length} camera track(s) found — need >= 2 synced single-clip video tracks from V1`);
+    return null;
+  }
+  if (target === null) target = sources.length; // may not exist yet — apply will tell
+  for (const s of sources) {
+    info(`  cam${s.camera} = V${s.vIndex + 1} "${s.name}" offset ${s.offsetFrames}f  ${s.path}`);
+  }
+  info(`  assembly target: V${target + 1}, timeline length ${totalFrames} frames`);
+  detectedSources = sources;
+  detectedTarget = { vTrackIndex: target, totalFrames };
+  TOTAL_FRAMES = totalFrames;
+  return { sources, target, totalFrames };
+}
+
+async function runDetectedPipeline() {
+  const det = await detectSources();
+  if (!det) return;
+  info("=== Pipeline (detected sources): sidecar /analyze -> clone apply ===");
+  let resp;
+  try {
+    resp = await fetch(`${SIDECAR}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audio_paths: det.sources.map((s) => s.path),
+        offset_frames: det.sources.map((s) => s.offsetFrames),
+        fps_numerator: FPS_NUM,
+        fps_denominator: FPS_DEN,
+        total_frames: det.totalFrames,
+      }),
+    });
+  } catch (e) {
+    err(`sidecar unreachable at ${SIDECAR} — is uvicorn running? (${e.message})`);
+    return;
+  }
+  if (!resp.ok) {
+    err(`sidecar ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+    return;
+  }
+  const map = await resp.json();
+  info(`cut map received: ${map.cuts.length} cuts over ${map.total_frames} frames`);
+  await applyCutMap(map.cuts, map.total_frames, "detected-source cut map", det);
+  await verify();
+}
 
 // ---------- 6. full pipeline: sidecar analyze -> apply ----------
 const SIDECAR = "http://127.0.0.1:8765";
@@ -556,7 +664,7 @@ async function verify() {
   info(`Worst sub-frame error: ${worst.toExponential(3)} frames`);
   // V4 must contain exactly the applied cut map: one segment per cut.
   try {
-    const v4 = await getVideoTrackItems(sequence, 3);
+    const v4 = await getVideoTrackItems(sequence, lastTargetTrack);
     const starts = [];
     for (const ti of v4) starts.push(Math.round(tickTimeToFrame(await ti.getStartTime())));
     starts.sort((a, b) => a - b);
@@ -602,6 +710,8 @@ bind("btnMethodC", methodC);
 bind("btnVerify", verify);
 bind("btnCheckpoint", gotoNextCheckpoint);
 bind("btnPipeline", runPipeline);
+bind("btnDetect", detectSources);
+bind("btnDetectedPipeline", runDetectedPipeline);
 document.getElementById("btnClear").addEventListener("click", () => (logEl.textContent = ""));
 
 info("M0 spike panel loaded. Run 0 (probe) first; paste its output back into the session.");
@@ -616,6 +726,12 @@ if (AUTO_RUN_PIPELINE) {
 // One-shot negative test for the E5 timebase guard: the 25 fps "04 Music"
 // sequence must be REFUSED. Throwaway; set false after the run.
 const AUTO_TEST_E5 = false;
+
+// One-shot live test of detection + detected pipeline. Set false after use.
+const AUTO_RUN_DETECTED = false;
+if (AUTO_RUN_DETECTED) {
+  setTimeout(() => runDetectedPipeline().catch((e) => err("UNCAUGHT: " + e.message)), 1500);
+}
 if (AUTO_TEST_E5) {
   setTimeout(async () => {
     try {
