@@ -5,3 +5,4 @@ tests/fixtures/*.wav
 node_modules/
 __pycache__/
 .DS_Store
+.venv/

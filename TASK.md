@@ -14,15 +14,27 @@ Run artifacts:
 - Methods B/C not pursued: their shared dependency (in-place split via
   clone+trim) throws "Invalid parameter", and A passed the acceptance bar
 
-## Next milestone: M1 (per CLAUDE.md architecture)
-Suggested first tasks, pending PM confirmation:
-1. Swap stand-in fixture for real 3-cam podcast footage (arriving week of
-   2026-06-15) and re-run the A-method spike once as regression
-2. Start the Python sidecar skeleton: FastAPI + FFmpeg per-track audio
-   extraction + VAD activity blocks (cheap tier, no model)
-3. Define the NLE-agnostic cut-map JSON contract (frames + fps rational +
-   camera index, as in tests/fixtures/cutmap.json)
+## Milestone: M1 sidecar — IN PROGRESS (started 2026-06-11)
+
+Done:
+- Cut-map contract formalised: `sidecar/cutengine/schema.py` (frames + fps
+  rational, validated; same wire shape as tests/fixtures/cutmap.json)
+- DSP cheap tier, no model: `sidecar/dsp/` — ffmpeg mono extraction (piped
+  s16le, no temp files) + energy-gate VAD with hysteresis (50 ms hops)
+- Cut engine: `sidecar/cutengine/engine.py` — active-channel switching,
+  loudest-wins crosstalk, hold-last-on-silence, min-shot flicker absorption
+- FastAPI sidecar: `sidecar/app.py` — POST /analyze (paths in, cut map out)
+- 9 tests green (`.venv/bin/python -m pytest tests/test_cutengine.py
+  tests/test_api.py`): VAD blocks, schedule reproduction, crosstalk,
+  min-shot, schema rejection, end-to-end HTTP with real ffmpeg decode
+
+Next:
+1. Real 3-cam footage regression (footage arrives week of 2026-06-15):
+   spike re-run + /analyze on real per-mic audio
+2. UXP panel -> sidecar wiring: panel collects source paths, calls /analyze,
+   feeds the returned cut map to the proven Method A apply path
+3. Apply adapter hardening: timebase check (E5), sequence creation from
+   footage, write to a NEW sequence (hard rule 4)
 
 ## Blocked on
 - Real footage (next week)
-- PM go-ahead for M1 scope

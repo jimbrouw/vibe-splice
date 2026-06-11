@@ -2,6 +2,18 @@
 
 Newest first. Every entry: what changed, why.
 
+## 2026-06-11 — Cheap-tier VAD is an energy gate, not webrtcvad/silero
+Per-mic podcast audio makes "who is talking" an energy problem; an RMS
+hysteresis gate (50 ms hops, noise-floor-relative open/close thresholds) needs
+only numpy and reproduces a known speaking schedule within 0.5 s in tests.
+Swap in a model VAD later only if real footage shows the gate failing; the
+`detect_activity()` interface (RMS in, blocks out) is the seam.
+
+## 2026-06-11 — Sidecar decisions happen in hop units, frames at the edge
+The engine decides on 50 ms hops and converts to integer video frames exactly
+once at the end (`hops_to_frames`). Float seconds never cross a module
+boundary, mirroring the tick discipline on the Premiere side (E1).
+
 ## 2026-06-11 — Fixture is OpenCV-rendered, not drawtext
 Both FFmpeg builds on this machine (Intel /usr/local and Homebrew 8.1.1) lack
 the freetype-dependent `drawtext` filter. Frame counters are rendered with
