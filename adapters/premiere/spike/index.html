@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      font-family: "Adobe Clean", system-ui, sans-serif;
+      background: #232323;
+      color: #ddd;
+      font-size: 12px;
+      margin: 8px;
+    }
+    h3 { margin: 4px 0; color: #fff; }
+    .hint { color: #999; margin-bottom: 8px; }
+    button {
+      display: block;
+      width: 100%;
+      margin: 4px 0;
+      padding: 8px;
+      background: #3b3b3b;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+    }
+    button:hover { background: #4b4b4b; }
+    button.danger { border-color: #855; }
+    #log {
+      margin-top: 8px;
+      padding: 6px;
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      height: 320px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .ok { color: #8c8; }
+    .err { color: #e88; }
+    .info { color: #8af; }
+  </style>
+</head>
+<body>
+  <h3>M0 Timeline-Write Spike</h3>
+  <div class="hint">
+    Prereq: import cam1.mp4, cam2.mp4, cam3.mp4, audio_bed.wav from
+    /tests/fixtures into the project, then open an empty 1280x720 @ 29.97
+    sequence as the active sequence.
+  </div>
+
+  <button id="btnProbe">0. Probe API surface (run first)</button>
+  <button id="btnBuild">1. Build synced 3-cam test sequence</button>
+  <button id="btnSplit">2. Test split primitive (clone + trim)</button>
+  <button id="btnMethodA">3a. Method A — segmented overwrite (single track)</button>
+  <button id="btnMethodB">3b. Method B — stacked + disable</button>
+  <button id="btnMethodC" class="danger">3c. Method C — stacked + remove</button>
+  <button id="btnVerify">4. Verify drift against cut map</button>
+  <button id="btnClear">Clear log</button>
+
+  <div id="log"></div>
+  <script src="spike.js"></script>
+</body>
+</html>

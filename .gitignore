@@ -1,0 +1,7 @@
+# Generated fixture media — rebuild with tests/fixtures/generate_fixture.py
+tests/fixtures/*.mp4
+tests/fixtures/*.wav
+
+node_modules/
+__pycache__/
+.DS_Store

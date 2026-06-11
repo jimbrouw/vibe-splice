@@ -1,0 +1,20 @@
+{
+  "comment": "Hand-written cut map for the M0 spike. 12 angle switches over 10 minutes at 29.97 fps. Authority is the integer frame number — never float seconds. camera is 1-based (cam1=V1, cam2=V2, cam3=V3). Each entry means: from this frame (inclusive) until the next entry's frame, show this camera. Checkpoints marked for drift measurement: early / middle / late.",
+  "fps_numerator": 30000,
+  "fps_denominator": 1001,
+  "total_frames": 17982,
+  "cuts": [
+    { "frame": 0,     "camera": 1 },
+    { "frame": 450,   "camera": 2, "checkpoint": "early" },
+    { "frame": 1200,  "camera": 3 },
+    { "frame": 2400,  "camera": 1 },
+    { "frame": 4500,  "camera": 2 },
+    { "frame": 6300,  "camera": 3 },
+    { "frame": 8991,  "camera": 1, "checkpoint": "middle" },
+    { "frame": 10500, "camera": 2 },
+    { "frame": 12000, "camera": 3 },
+    { "frame": 14100, "camera": 1 },
+    { "frame": 16200, "camera": 2 },
+    { "frame": 17500, "camera": 3, "checkpoint": "late" }
+  ]
+}
