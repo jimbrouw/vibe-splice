@@ -279,13 +279,15 @@ async function testSplitPrimitive() {
 }
 
 // ---------- intervals from cut map ----------
-function intervals() {
+let appliedCuts = CUTS; // verify compares V4 against whatever was last applied
+
+function intervals(cuts, totalFrames) {
   const out = [];
-  for (let i = 0; i < CUTS.length; i++) {
+  for (let i = 0; i < cuts.length; i++) {
     out.push({
-      start: CUTS[i].frame,
-      end: i + 1 < CUTS.length ? CUTS[i + 1].frame : TOTAL_FRAMES,
-      camera: CUTS[i].camera,
+      start: cuts[i].frame,
+      end: i + 1 < cuts.length ? cuts[i + 1].frame : totalFrames,
+      camera: cuts[i].camera,
     });
   }
   return out;
@@ -321,7 +323,11 @@ async function clearVideoTrack(project, sequence, vIndex) {
 // placed item with createSetInPointAction MOVES it and lands off-frame by a
 // 29.97/30 factor — never trim source after placement.
 async function methodA() {
-  info("=== Method A: segmented overwrite assembly onto V4 ===");
+  return applyCutMap(CUTS, TOTAL_FRAMES, "Method A (hardcoded cut map)");
+}
+
+async function applyCutMap(cuts, totalFrames, label) {
+  info(`=== Apply onto V4: ${label}, ${cuts.length} cuts ===`);
   const { project, sequence } = await getActive();
   const editor = await ppro.SequenceEditor.getEditor(sequence);
 
@@ -330,7 +336,7 @@ async function methodA() {
 
   await clearVideoTrack(project, sequence, 3);
 
-  for (const iv of intervals()) {
+  for (const iv of intervals(cuts, totalFrames)) {
     const startT = frameToTickTime(iv.start);
     const endT = frameToTickTime(iv.end);
     const item = cams[iv.camera - 1];
@@ -348,7 +354,41 @@ async function methodA() {
       clip.createClearInOutPointsAction(),
     ]);
   }
-  ok("Method A applied to V4. Solo V4 and run verify.");
+  appliedCuts = cuts;
+  ok(`${label}: applied to V4. Run verify.`);
+}
+
+// ---------- 6. full pipeline: sidecar analyze -> apply ----------
+const SIDECAR = "http://127.0.0.1:8765";
+const FIXTURES = "/Users/standard/Developer/Vibe-splice/tests/fixtures";
+
+async function runPipeline() {
+  info("=== Full pipeline: sidecar /analyze -> Method A apply ===");
+  let resp;
+  try {
+    resp = await fetch(`${SIDECAR}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audio_paths: [1, 2, 3].map((n) => `${FIXTURES}/cam${n}.mp4`),
+        fps_numerator: FPS_NUM,
+        fps_denominator: FPS_DEN,
+        total_frames: TOTAL_FRAMES,
+      }),
+    });
+  } catch (e) {
+    err(`sidecar unreachable at ${SIDECAR} — is uvicorn running? (${e.message})`);
+    return;
+  }
+  if (!resp.ok) {
+    err(`sidecar ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+    return;
+  }
+  const map = await resp.json();
+  info(`cut map received: ${map.cuts.length} cuts over ${map.total_frames} frames`);
+  for (const c of map.cuts) info(`  frame ${c.frame} -> cam${c.camera}`);
+  await applyCutMap(map.cuts, map.total_frames, "sidecar VAD cut map");
+  await verify();
 }
 
 // ---------- 3b. Method B: stacked + disable ----------
@@ -443,6 +483,23 @@ async function verify() {
     }
   }
   info(`Worst sub-frame error: ${worst.toExponential(3)} frames`);
+  // V4 must contain exactly the applied cut map: one segment per cut.
+  try {
+    const v4 = await getVideoTrackItems(sequence, 3);
+    const starts = [];
+    for (const ti of v4) starts.push(Math.round(tickTimeToFrame(await ti.getStartTime())));
+    starts.sort((a, b) => a - b);
+    const expected = appliedCuts.map((c) => c.frame);
+    const match =
+      starts.length === expected.length && starts.every((f, i) => f === expected[i]);
+    if (match) ok(`V4 matches applied cut map exactly (${starts.length} segments)`);
+    else {
+      err(`V4 mismatch. expected starts: ${expected.join(",")}`);
+      err(`             actual starts: ${starts.join(",")}`);
+    }
+  } catch (e) {
+    err("V4 comparison failed: " + e.message);
+  }
   info("API readback is necessary but not sufficient: also step the playhead to");
   info("frames 450 / 8991 / 17500 and confirm the burned-in FRAME number matches");
   info("and the 30s flash stays aligned with the beep late in the timeline.");
@@ -473,6 +530,14 @@ bind("btnMethodB", methodB);
 bind("btnMethodC", methodC);
 bind("btnVerify", verify);
 bind("btnCheckpoint", gotoNextCheckpoint);
+bind("btnPipeline", runPipeline);
 document.getElementById("btnClear").addEventListener("click", () => (logEl.textContent = ""));
 
 info("M0 spike panel loaded. Run 0 (probe) first; paste its output back into the session.");
+
+// One-shot auto-run for driving the pipeline without UI access. Set to false
+// after use — throwaway spike convenience, not product behaviour.
+const AUTO_RUN_PIPELINE = false;
+if (AUTO_RUN_PIPELINE) {
+  setTimeout(() => runPipeline().catch((e) => err("UNCAUGHT: " + e.message)), 1500);
+}

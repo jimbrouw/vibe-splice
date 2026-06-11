@@ -19,8 +19,10 @@ Replace with real 3-cam footage when available (expected week of 2026-06-15).
 Keep the same filenames so the spike panel needs no changes.
 """
 
+import json
 import subprocess
 import sys
+import wave
 from pathlib import Path
 
 import cv2
@@ -54,13 +56,60 @@ def put_centered(img, text, y, scale, color, thickness):
     cv2.putText(img, text, ((W - tw) // 2, y), FONT, scale, color, thickness, cv2.LINE_AA)
 
 
-def generate_cam(name: str, bgr: tuple, out: Path):
+AUDIO_SR = 48000
+
+
+def make_schedule() -> list[dict]:
+    """Deterministic non-overlapping speaking schedule covering DURATION_S.
+
+    Varied segment lengths, speakers round-robin. Written to
+    speech_schedule.json — the ground truth the cut engine must reproduce.
+    """
+    durations = [12, 7, 15, 9, 20, 6, 11, 14, 8, 18]
+    schedule = []
+    t, i = 0.0, 0
+    while t < DURATION_S:
+        d = durations[i % len(durations)]
+        end = min(t + d, DURATION_S)
+        schedule.append({"start_s": t, "end_s": end, "speaker": (i % 3) + 1})
+        t, i = end, i + 1
+    return schedule
+
+
+def mic_audio(schedule: list[dict], speaker: int, seed: int) -> np.ndarray:
+    """This speaker's mic: speech-band noise bursts when talking, faint floor."""
+    rng = np.random.default_rng(seed)
+    n = int(DURATION_S * AUDIO_SR)
+    sig = rng.normal(0, 0.004, n).astype(np.float32)
+    for seg in schedule:
+        if seg["speaker"] != speaker:
+            continue
+        s, e = int(seg["start_s"] * AUDIO_SR), int(seg["end_s"] * AUDIO_SR)
+        burst = rng.normal(0, 0.25, e - s).astype(np.float32)
+        t = np.arange(e - s) / AUDIO_SR
+        burst *= 0.6 + 0.4 * np.sin(2 * np.pi * 4.0 * t).astype(np.float32) ** 2
+        sig[s:e] += burst
+    return sig
+
+
+def write_wav(path: Path, samples: np.ndarray):
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(AUDIO_SR)
+        w.writeframes((np.clip(samples, -1, 1) * 32767).astype(np.int16).tobytes())
+
+
+def generate_cam(name: str, bgr: tuple, out: Path, mic_wav: Path):
     proc = subprocess.Popen(
         [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
          "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}",
          "-r", f"{FPS_NUM}/{FPS_DEN}", "-i", "-",
+         "-i", str(mic_wav),
+         "-map", "0:v", "-map", "1:a",
          "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-         "-pix_fmt", "yuv420p", str(out)],
+         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k",
+         "-shortest", str(out)],
         stdin=subprocess.PIPE,
     )
     base = np.full((H, W, 3), bgr, dtype=np.uint8)
@@ -105,13 +154,18 @@ def generate_audio(out: Path):
 
 def main():
     here = Path(__file__).parent
-    for name, bgr in CAMS:
+    schedule = make_schedule()
+    (here / "speech_schedule.json").write_text(json.dumps(schedule, indent=1))
+    for i, (name, bgr) in enumerate(CAMS):
         out = here / f"{name}.mp4"
         if out.exists():
             print(f"{out.name} exists, skipping")
             continue
+        mic = here / f"{name}_mic.wav"
+        print(f"Generating {mic.name} ...")
+        write_wav(mic, mic_audio(schedule, speaker=i + 1, seed=100 + i))
         print(f"Generating {out.name} ...")
-        generate_cam(name, bgr, out)
+        generate_cam(name, bgr, out, mic)
     audio = here / "audio_bed.wav"
     if not audio.exists():
         print("Generating audio_bed.wav ...")

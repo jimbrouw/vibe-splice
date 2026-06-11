@@ -38,6 +38,13 @@ factory (`TrackItemSelection.createEmptySelection`). Guard: wrap every factory
 in try/catch with a fallback path (`sequence.getSelection()` worked); log which
 path was live.
 
+## E8 — UXP network permission rejects explicit localhost domains (hit 2026-06-11)
+Symptom: fetch throws "Plugin is not permitted to access the network apis"
+despite a `network.domains` array in the manifest. Cause: entries like
+"http://127.0.0.1:8765" are not accepted; and manifest changes are NOT picked
+up by UDT Reload. Guard: use `"domains": "all"` for the localhost sidecar and
+do UDT Unload + Load after any manifest edit.
+
 ## E4 — Stale trackItem handles after a transaction
 Symptom: action on an item fetched before a clone/remove acts on the wrong
 item or throws. [Inference, unconfirmed] Guard: re-query getTrackItems()

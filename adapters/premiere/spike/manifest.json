@@ -9,7 +9,10 @@
     "minVersion": "25.0"
   },
   "requiredPermissions": {
-    "localFileSystem": "request"
+    "localFileSystem": "request",
+    "network": {
+      "domains": "all"
+    }
   },
   "entrypoints": [
     {

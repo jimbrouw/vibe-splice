@@ -28,13 +28,23 @@ Done:
   tests/test_api.py`): VAD blocks, schedule reproduction, crosstalk,
   min-shot, schema rejection, end-to-end HTTP with real ffmpeg decode
 
+Done (later same day) — END-TO-END PIPELINE PROVEN:
+- Fixtures regenerated with per-cam mic audio (AAC in each cam mp4) following
+  a 50-segment speaking schedule (`tests/fixtures/speech_schedule.json`)
+- Panel button 6 / `runPipeline()`: POST /analyze to the sidecar
+  (localhost:8765), apply the returned map via the Method A path
+- Live result in Premiere: 50 cuts applied, worst sub-frame error 0.000,
+  V4 segment starts match the sidecar cut map exactly
+- Manifest gotchas: UXP network permission needs `"domains": "all"` (explicit
+  localhost entries rejected), and manifest changes need UDT Unload+Load,
+  not Reload
+
 Next:
-1. Real 3-cam footage regression (footage arrives week of 2026-06-15):
-   spike re-run + /analyze on real per-mic audio
-2. UXP panel -> sidecar wiring: panel collects source paths, calls /analyze,
-   feeds the returned cut map to the proven Method A apply path
-3. Apply adapter hardening: timebase check (E5), sequence creation from
-   footage, write to a NEW sequence (hard rule 4)
+1. Real 3-cam footage regression (footage arrives week of 2026-06-15)
+2. Apply adapter hardening: timebase check (E5), write to a NEW sequence
+   (hard rule 4 — spike currently writes to V4 of the active sequence),
+   panel UI for selecting sources instead of hardcoded fixture paths
+3. Promote spike learnings into /panel + /adapters/premiere proper (M2)
 
 ## Blocked on
 - Real footage (next week)
