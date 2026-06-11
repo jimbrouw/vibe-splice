@@ -411,15 +411,25 @@ async function applyCutMap(cuts, totalFrames, label, det = null) {
   lastTargetTrack = targetTrack;
 
   for (const iv of intervals(cuts, totalFrames)) {
-    const startT = frameToTickTime(iv.start);
-    const endT = frameToTickTime(iv.end);
+    // Timeline frame F shows the camera's MEDIA frame F - offset. Source
+    // in/out live in media time; clamp to the media that actually exists.
+    const src = det ? det.sources[iv.camera - 1] : null;
+    const off = src ? src.offsetFrames : 0;
+    let srcIn = iv.start - off;
+    let srcOut = iv.end - off;
+    if (src) {
+      if (srcIn < 0) { info(`  clamp: cam${iv.camera} interval ${iv.start}.. starts before its media — trimming head`); srcIn = 0; }
+      if (srcOut > src.mediaEndFrame) { info(`  clamp: cam${iv.camera} interval ..${iv.end} outruns its media — trimming tail`); srcOut = src.mediaEndFrame; }
+      if (srcIn >= srcOut) { err(`  skip: cam${iv.camera} has no media for interval ${iv.start}..${iv.end}`); continue; }
+    }
+    const placeT = frameToTickTime(srcIn + off); // = iv.start unless head-clamped
     const item = cams[iv.camera - 1];
     const clip = ppro.ClipProjectItem.cast(item);
-    await execute(project, `A: source in/out ${iv.start}..${iv.end} on cam${iv.camera}`, () => [
-      clip.createSetInOutPointsAction(startT, endT),
+    await execute(project, `A: source in/out ${srcIn}..${srcOut} on cam${iv.camera}`, () => [
+      clip.createSetInOutPointsAction(frameToTickTime(srcIn), frameToTickTime(srcOut)),
     ]);
-    await execute(project, `A: overwrite cam${iv.camera} at frame ${iv.start}`, () => [
-      editor.createOverwriteItemAction(item, startT, targetTrack, -1),
+    await execute(project, `A: overwrite cam${iv.camera} at frame ${srcIn + off}`, () => [
+      editor.createOverwriteItemAction(item, placeT, targetTrack, -1),
     ]);
   }
   for (let i = 0; i < 3; i++) {
@@ -479,9 +489,14 @@ async function detectSources() {
       const offsetFrames = Math.round(
         (Number(st.ticks) - Number(ip.ticks)) / TICKS_PER_FRAME
       );
+      const et = await ti.getEndTime();
+      // Media extent in MEDIA frames: [inPoint, inPoint + placed duration).
+      const inFrames = Math.round(Number(ip.ticks) / TICKS_PER_FRAME);
+      const mediaEndFrame =
+        inFrames + Math.round((Number(et.ticks) - Number(st.ticks)) / TICKS_PER_FRAME);
       sources.push({
         vIndex: v, camera: sources.length + 1, name: proj.name,
-        path, offsetFrames, projItem: proj,
+        path, offsetFrames, mediaEndFrame, projItem: proj,
       });
     } else if (target === null && sources.length) {
       target = v; // first non-single-clip track above the camera stack
@@ -729,6 +744,48 @@ const AUTO_TEST_E5 = false;
 
 // One-shot live test of detection + detected pipeline. Set false after use.
 const AUTO_RUN_DETECTED = false;
+
+// One-shot offset edge-case test: cam2 trimmed-in (inPoint 60) AND starting
+// mid-timeline (frame 150) -> offset +90. Builds the rig on a clone, then
+// runs the detected pipeline on it. Set false after use.
+const AUTO_PLAYHEAD_FRAME = null; // null to disable; visual check of offset math
+if (AUTO_PLAYHEAD_FRAME !== null) {
+  setTimeout(async () => {
+    const { sequence } = await getActive();
+    await sequence.setPlayerPosition(frameToTickTime(AUTO_PLAYHEAD_FRAME));
+    info(`playhead at timeline frame ${AUTO_PLAYHEAD_FRAME} on "${sequence.name}" — for a cam2 segment expect burned-in FRAME ${AUTO_PLAYHEAD_FRAME - 90}`);
+  }, 1500);
+}
+
+const AUTO_TEST_OFFSET = false;
+if (AUTO_TEST_OFFSET) {
+  setTimeout(async () => {
+    try {
+      info("=== Offset edge-case rig: shift+trim cam2 ===");
+      const { project, sequence: src } = await getActive();
+      const rig = await cloneToNewSequence(project, src);
+      // V2 (index 1): drop the synced cam2, re-place it trimmed and late.
+      await clearVideoTrack(project, rig, 1);
+      const cam2 = await findNoLog(project, "cam2.mp4");
+      const clip = ppro.ClipProjectItem.cast(cam2);
+      const editor = await ppro.SequenceEditor.getEditor(rig);
+      await execute(project, "rig: cam2 source in 60", () => [
+        clip.createSetInOutPointsAction(frameToTickTime(60), frameToTickTime(TOTAL_FRAMES)),
+      ]);
+      await execute(project, "rig: place cam2 at frame 150 on V2", () => [
+        editor.createOverwriteItemAction(cam2, frameToTickTime(150), 1, -1),
+      ]);
+      await execute(project, "rig: clear cam2 in/out", () => [
+        clip.createClearInOutPointsAction(),
+      ]);
+      await project.setActiveSequence(rig);
+      ok(`rig ready on "${rig.name}" — expecting detection: cam2 offset 90f, inPoint 60`);
+      await runDetectedPipeline();
+    } catch (e) {
+      err("OFFSET TEST UNCAUGHT: " + (e && e.message ? e.message : String(e)));
+    }
+  }, 1500);
+}
 if (AUTO_RUN_DETECTED) {
   setTimeout(() => runDetectedPipeline().catch((e) => err("UNCAUGHT: " + e.message)), 1500);
 }

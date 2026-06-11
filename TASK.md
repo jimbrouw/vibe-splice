@@ -62,13 +62,24 @@ Done (source detection, same day):
 - Nothing about the fixture (paths, rate, length, track count) is
   hardcoded in the detected path anymore
 
+Done (offset edge cases, same day):
+- Found+fixed a real bug in the apply path: source in/out were set to
+  TIMELINE frames, only correct at offset 0. Now source = timeline − offset,
+  clamped to the media span ([0, mediaEndFrame]), intervals with no media
+  skipped with a logged warning
+- Live-verified with a rigged sequence: cam2 trimmed-in (inPoint 60) AND
+  placed at frame 150 (offset +90). Detection reported offset 90f; every
+  cam2 segment placed at frame F reads source F−90 (checked across the
+  transaction log); zero sub-frame error, exact map match
+
 Next:
 1. Real 3-cam footage regression (footage arrives week of 2026-06-15) —
    the detected path (button 8) should work on it unchanged
 2. Promote spike learnings into /panel + /adapters/premiere proper (M2):
    React+Spectrum panel, sidecar lifecycle management, progress UI
-3. Offset edge cases on real footage: trimmed-in cameras (inPoint > 0),
-   cameras starting mid-timeline
+3. Known cosmetic gap: `setActiveSequence` changes the API-active sequence
+   but does NOT open its timeline/program monitor — M2 panel should tell
+   the user to open the new sequence (or find an open-timeline API)
 
 ## Blocked on
 - Real footage (next week)
