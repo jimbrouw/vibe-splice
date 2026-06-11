@@ -326,9 +326,64 @@ async function methodA() {
   return applyCutMap(CUTS, TOTAL_FRAMES, "Method A (hardcoded cut map)");
 }
 
+// E5 guard: refuse to write into a sequence whose timebase differs from the
+// cut map's rate — Premiere silently snaps placements to the sequence grid.
+async function assertTimebase(sequence) {
+  const expected = (TICKS_PER_SECOND / FPS_NUM) * FPS_DEN;
+  const tb = await sequence.getTimebase();
+  const actual = Number(tb?.ticks ?? tb);
+  info(`sequence timebase: ${actual} ticks/frame (cut map needs ${expected})`);
+  if (actual !== expected) {
+    throw new Error(
+      `timebase mismatch: sequence ${actual} vs cut map ${expected} ticks/frame — ` +
+      `create the sequence from the footage (E5)`
+    );
+  }
+}
+
+// Hard rule 4: never mutate the user's sequence. Clone it, find the clone by
+// diffing sequence guids in the project, and write into the clone.
+async function cloneToNewSequence(project, sequence) {
+  async function sequenceGuids() {
+    const guids = new Map();
+    const root = await project.getRootItem();
+    async function walk(bin) {
+      for (const item of await bin.getItems()) {
+        try {
+          const clip = ppro.ClipProjectItem.cast(item);
+          if (clip && (await clip.isSequence())) {
+            const seq = await clip.getSequence();
+            if (seq) guids.set(seq.guid.toString(), seq);
+          }
+        } catch { /* not a clip item */ }
+        let f = null;
+        if (ppro.FolderItem?.cast) { try { f = ppro.FolderItem.cast(item); } catch {} }
+        if (f && typeof f.getItems === "function") await walk(f);
+      }
+    }
+    await walk(root);
+    return guids;
+  }
+
+  const before = await sequenceGuids();
+  await execute(project, "clone sequence (non-destructive output)", () => [
+    sequence.createCloneAction(),
+  ]);
+  const after = await sequenceGuids();
+  for (const [guid, seq] of after) {
+    if (!before.has(guid)) {
+      info(`writing into new sequence "${seq.name}" — source sequence untouched`);
+      return seq;
+    }
+  }
+  throw new Error("clone executed but no new sequence found in project");
+}
+
 async function applyCutMap(cuts, totalFrames, label) {
   info(`=== Apply onto V4: ${label}, ${cuts.length} cuts ===`);
-  const { project, sequence } = await getActive();
+  const { project, sequence: source } = await getActive();
+  await assertTimebase(source);
+  const sequence = await cloneToNewSequence(project, source);
   const editor = await ppro.SequenceEditor.getEditor(sequence);
 
   const cams = [];
@@ -355,8 +410,20 @@ async function applyCutMap(cuts, totalFrames, label) {
     ]);
   }
   appliedCuts = cuts;
-  ok(`${label}: applied to V4. Run verify.`);
+  lastAppliedSequence = sequence;
+  try {
+    if (typeof project.setActiveSequence === "function") {
+      await project.setActiveSequence(sequence);
+      ok("new sequence made active");
+    } else {
+      info("project proto: " + Object.getOwnPropertyNames(Object.getPrototypeOf(project)).join(", "));
+    }
+  } catch (e) {
+    err("setActiveSequence: " + e.message);
+  }
+  ok(`${label}: applied to V4 of "${sequence.name}". Run verify.`);
 }
+let lastAppliedSequence = null;
 
 // ---------- 6. full pipeline: sidecar analyze -> apply ----------
 const SIDECAR = "http://127.0.0.1:8765";
@@ -457,7 +524,11 @@ async function methodC() {
 // ---------- 4. verify drift ----------
 async function verify() {
   info("=== Drift verification against cut map ===");
-  const { sequence } = await getActive();
+  let { sequence } = await getActive();
+  if (lastAppliedSequence) {
+    sequence = lastAppliedSequence;
+    info(`verifying applied sequence "${sequence.name}"`);
+  }
   let worst = 0;
   for (let v = 0; v < 4; v++) {
     let items;
@@ -541,3 +612,37 @@ const AUTO_RUN_PIPELINE = false;
 if (AUTO_RUN_PIPELINE) {
   setTimeout(() => runPipeline().catch((e) => err("UNCAUGHT: " + e.message)), 1500);
 }
+
+// One-shot negative test for the E5 timebase guard: the 25 fps "04 Music"
+// sequence must be REFUSED. Throwaway; set false after the run.
+const AUTO_TEST_E5 = false;
+if (AUTO_TEST_E5) {
+  setTimeout(async () => {
+    try {
+      const { project } = await getActive();
+      const root = await project.getRootItem();
+      let target = null;
+      async function walk(bin) {
+        for (const item of await bin.getItems()) {
+          try {
+            const clip = ppro.ClipProjectItem.cast(item);
+            if (clip && (await clip.isSequence())) {
+              const seq = await clip.getSequence();
+              if (seq && seq.name === "04 Music") { target = seq; return; }
+            }
+          } catch {}
+          let f = null;
+          try { f = ppro.FolderItem.cast(item); } catch {}
+          if (f && typeof f.getItems === "function") { await walk(f); if (target) return; }
+        }
+      }
+      await walk(root);
+      if (!target) { err("E5 test: 04 Music sequence not found"); return; }
+      await assertTimebase(target);
+      err("E5 test FAILED: 25 fps sequence was NOT refused");
+    } catch (e) {
+      ok("E5 guard fired as expected: " + e.message);
+    }
+  }, 1500);
+}
+

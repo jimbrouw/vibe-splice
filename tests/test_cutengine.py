@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "sidecar"))
 
 from cutengine.engine import build_cut_map  # noqa: E402
 from cutengine.schema import CutMap  # noqa: E402
-from dsp.vad import HOP_S, detect_activity, rms_per_hop  # noqa: E402
+from dsp.vad import HOP_S, align_to_timeline, detect_activity, rms_per_hop  # noqa: E402
 
 SR = 16000
 FPS = (30000, 1001)
@@ -100,6 +100,38 @@ def test_min_shot_absorbs_flicker():
     rms = [rms_per_hop(c, SR, HOP_S) for c in chans]
     m = build_cut_map(rms, *FPS, round(20.0 * FPS[0] / FPS[1]), min_shot_s=1.5)
     assert [c.camera for c in m.cuts] == [1, 3]
+
+
+def test_offset_alignment_recovers_schedule(channel_rms):
+    """Separately recorded audio with known offsets must yield the same map.
+
+    Channel 2's recorder started 3 s late (audio t=0 = timeline frame +90ish);
+    channel 3's was rolling 2 s early (negative offset). After alignment the
+    engine must still reproduce the schedule.
+    """
+    late_frames = round(3.0 * FPS[0] / FPS[1])     # +3 s
+    early_frames = -round(2.0 * FPS[0] / FPS[1])   # -2 s
+    late_hops = round(3.0 / HOP_S)
+    early_hops = round(2.0 / HOP_S)
+
+    # Simulate the recordings: late recorder is missing its first 3 s of
+    # audio; early recorder has 2 s of extra room tone at the front.
+    rng = np.random.default_rng(9)
+    ch1 = channel_rms[0]
+    ch2_rec = channel_rms[1][late_hops:]
+    ch3_rec = np.concatenate([rng.uniform(0.003, 0.005, early_hops), channel_rms[2]])
+
+    aligned = [
+        align_to_timeline(ch1, 0, *FPS),
+        align_to_timeline(ch2_rec, late_frames, *FPS),
+        align_to_timeline(ch3_rec, early_frames, *FPS),
+    ]
+    total_frames = round(DURATION_S * FPS[0] / FPS[1])
+    m = build_cut_map(aligned, *FPS, total_frames)
+    assert [c.camera for c in m.cuts] == [s[2] for s in SCHEDULE]
+    for cut, (start_s, _, _) in zip(m.cuts, SCHEDULE):
+        expected = round(start_s * FPS[0] / FPS[1])
+        assert abs(cut.frame - expected) <= round(0.5 * FPS[0] / FPS[1])
 
 
 def test_schema_round_trip(channel_rms):

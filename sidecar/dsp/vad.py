@@ -21,6 +21,25 @@ class ActivityBlock:
     end_hop: int  # exclusive
 
 
+def align_to_timeline(
+    rms: np.ndarray, offset_frames: int, fps_num: int, fps_den: int, hop_s: float = HOP_S
+) -> np.ndarray:
+    """Shift a per-hop RMS series so index 0 is timeline frame 0.
+
+    offset_frames is where the audio file's t=0 sits on the timeline. Positive:
+    pad silence at the front (audio started late). Negative: drop leading hops
+    (audio was rolling before the cameras). Rounded to the nearest hop — half a
+    hop (25 ms) of error is far below VAD hysteresis latency.
+    """
+    offset_s = offset_frames * fps_den / fps_num
+    hops = round(offset_s / hop_s)
+    if hops > 0:
+        return np.concatenate([np.zeros(hops), rms])
+    if hops < 0:
+        return rms[-hops:]
+    return rms
+
+
 def rms_per_hop(samples: np.ndarray, sample_rate: int, hop_s: float = HOP_S) -> np.ndarray:
     """Mono float samples -> RMS per hop."""
     hop = int(round(sample_rate * hop_s))

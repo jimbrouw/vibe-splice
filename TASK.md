@@ -39,11 +39,22 @@ Done (later same day) — END-TO-END PIPELINE PROVEN:
   localhost entries rejected), and manifest changes need UDT Unload+Load,
   not Reload
 
+Done (hardening pass, same day):
+- Per-source sync offsets: `/analyze` accepts `offset_frames` for separately
+  recorded audio (positive = recorder started late, negative = early);
+  alignment in `dsp/vad.py:align_to_timeline`, covered by test (10 green)
+- E5 timebase guard in the apply path: live-verified BOTH ways — 29.97
+  sequence accepted, 25 fps sequence refused with a clear error
+- Hard rule 4 honoured: apply now clones the active sequence
+  (`sequence.createCloneAction`, clone found by diffing sequence guids),
+  writes into the clone, and makes it active via `project.setActiveSequence`.
+  Live result on "cam1 Copy": 50 segments, zero sub-frame error, source
+  sequence untouched
+
 Next:
 1. Real 3-cam footage regression (footage arrives week of 2026-06-15)
-2. Apply adapter hardening: timebase check (E5), write to a NEW sequence
-   (hard rule 4 — spike currently writes to V4 of the active sequence),
-   panel UI for selecting sources instead of hardcoded fixture paths
+2. Panel UI: source selection instead of hardcoded fixture paths; read
+   per-source offsets from the synced timeline
 3. Promote spike learnings into /panel + /adapters/premiere proper (M2)
 
 ## Blocked on
