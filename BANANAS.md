@@ -18,6 +18,26 @@ Symptom: `No such filter: 'drawtext'` (hit 2026-06-11 on both local builds).
 Guard: fixture generation renders text with OpenCV instead; any future
 drawtext use must probe `ffmpeg -filters` first.
 
+## E5 — Sequence timebase mismatch quantises every edit (hit 2026-06-11)
+Symptom: cut boundaries land off by ≤0.5 frame with NO growth over time;
+raw start ticks are exact multiples of a DIFFERENT frame duration (e.g. 1/25 s).
+Cause: the sequence timebase differs from the footage rate; Premiere snaps all
+placements to the sequence grid. Guard: apply adapter must check
+`sequence.getTimebase()` against the footage rate (or create the sequence from
+the footage) before writing a single edit.
+
+## E6 — createSetInPointAction on a placed item MOVES it (hit 2026-06-11)
+Symptom: segments appear at ~2× the intended position (e.g. 35000 for a cut
+at 17500), order scrambled. Cause: trimming source-in on a trackItem already
+in a sequence shifts the item rather than slipping content. Guard: 3-point
+edit only — set in/out on the ClipProjectItem, then overwrite-place.
+
+## E7 — API factory methods with undocumented required params (hit 2026-06-11)
+Symptom: "Not Enough Parameters" / "Illegal Parameter type" from a documented
+factory (`TrackItemSelection.createEmptySelection`). Guard: wrap every factory
+in try/catch with a fallback path (`sequence.getSelection()` worked); log which
+path was live.
+
 ## E4 — Stale trackItem handles after a transaction
 Symptom: action on an item fetched before a clone/remove acts on the wrong
 item or throws. [Inference, unconfirmed] Guard: re-query getTrackItems()

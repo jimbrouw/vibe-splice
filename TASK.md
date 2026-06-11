@@ -1,33 +1,28 @@
 # TASK.md — current milestone
 
-## Milestone: M0 timeline-write spike
-Status: code ready, awaiting live run in Premiere
+## Milestone: M0 timeline-write spike — DONE 2026-06-11
 
-## The one question
-Which UXP write method (A overwrite / B disable / C remove) produces an
-angle-switched 3-cam cut with zero growing drift on a 10-minute fixture?
+The one question is answered: **Method A (segmented overwrite via 3-point
+edit) writes an angle-switched cut with zero drift** on the 10-minute 3-cam
+29.97 fixture. Full report in CONTEXT.md; status block in CLAUDE.md updated;
+new error classes E5–E7 in BANANAS.md.
 
-## Done so far (2026-06-11)
-- Repo wired to github.com/jimbrouw/vibe-splice
-- Stand-in fixture generator: `tests/fixtures/generate_fixture.py`
-  (3 × 10 min @ 29.97, burned-in frame counters, 30s flash+beep sync markers)
-- Hand-written cut map: `tests/fixtures/cutmap.json` (12 switches, 3 checkpoints)
-- Spike panel: `adapters/premiere/spike/` (probe + build + split + A/B/C + verify)
+Run artifacts:
+- Spike panel: `adapters/premiere/spike/` (loaded via UDT "Load & Watch")
+- Verified live in Premiere 25.6.3 on macOS, project "test 1", sequence
+  created via New Sequence From Clip on cam1 (29.97p, 1280×720)
+- Methods B/C not pursued: their shared dependency (in-place split via
+  clone+trim) throws "Invalid parameter", and A passed the acceptance bar
 
-## Next (needs Premiere open — user or screen access)
-1. Load panel via UXP Developer Tool (see spike README)
-2. Run button 0 (probe), paste output back — resolves all [Unverified] API guesses
-3. Fix spike.js against real API surface
-4. Run methods A/B/C each on a fresh duplicate of the test sequence
-5. Record drift at frames 450 / 8991 / 17500
-
-## Definition of done
-- One method passes: correct angle per interval, zero growing drift at
-  early/middle/late checkpoints
-- Spike report in CONTEXT.md (winning method, exact call sequence, drift table)
-- Spike status block in CLAUDE.md filled in
-- New error classes in BANANAS.md
-- If NO method passes: stop, report to PM (CEP fallback / wait on Adobe / cut-list-only v1)
+## Next milestone: M1 (per CLAUDE.md architecture)
+Suggested first tasks, pending PM confirmation:
+1. Swap stand-in fixture for real 3-cam podcast footage (arriving week of
+   2026-06-15) and re-run the A-method spike once as regression
+2. Start the Python sidecar skeleton: FastAPI + FFmpeg per-track audio
+   extraction + VAD activity blocks (cheap tier, no model)
+3. Define the NLE-agnostic cut-map JSON contract (frames + fps rational +
+   camera index, as in tests/fixtures/cutmap.json)
 
 ## Blocked on
-- Real 3-cam footage: arriving week of 2026-06-15 (stand-in fixture in use meanwhile)
+- Real footage (next week)
+- PM go-ahead for M1 scope

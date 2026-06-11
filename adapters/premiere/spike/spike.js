@@ -35,7 +35,28 @@ const TICKS_PER_SECOND = 254016000000;
 const TICKS_PER_FRAME = (TICKS_PER_SECOND / FPS_NUM) * FPS_DEN; // 8475667200, exact integer
 
 // ---------- logging ----------
+// Mirrors every log line to spike-log.txt in the plugin data folder so the
+// session driving this spike can read results without scraping the panel UI.
 const logEl = document.getElementById("log");
+const fsp = require("uxp").storage.localFileSystem;
+let logLines = [];
+let logFile = null;
+async function initLogFile() {
+  try {
+    const folder = await fsp.getDataFolder();
+    logFile = await folder.createFile("spike-log.txt", { overwrite: true });
+    const native = await folder.getNativePath?.();
+    if (native) console.log("spike-log at: " + native);
+  } catch (e) {
+    console.log("file log unavailable: " + e.message);
+  }
+}
+initLogFile();
+let flushTimer = null;
+function flushLog() {
+  if (!logFile) return;
+  logFile.write(logLines.join("\n"), { append: false }).catch(() => {});
+}
 function log(msg, cls) {
   const line = document.createElement("div");
   if (cls) line.className = cls;
@@ -43,6 +64,9 @@ function log(msg, cls) {
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
   console.log(msg);
+  logLines.push(msg);
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flushLog, 300);
 }
 const ok = (m) => log("OK  " + m, "ok");
 const err = (m) => log("ERR " + m, "err");
@@ -90,11 +114,26 @@ async function getActive() {
 
 async function findProjectItem(project, name) {
   const root = await project.getRootItem();
-  const items = await root.getItems();
-  for (const item of items) {
-    if (item.name === name) return item;
+  async function walk(bin, depth) {
+    const items = await bin.getItems();
+    for (const item of items) {
+      log(`  ${"  ".repeat(depth)}item: "${item.name}" (${item.constructor?.name})`);
+      if (item.name === name) return item;
+      let asFolder = null;
+      if (typeof item.getItems === "function") asFolder = item;
+      else if (ppro.FolderItem?.cast) {
+        try { asFolder = ppro.FolderItem.cast(item); } catch { /* not a bin */ }
+      }
+      if (asFolder && typeof asFolder.getItems === "function") {
+        const found = await walk(asFolder, depth + 1).catch(() => null);
+        if (found) return found;
+      }
+    }
+    return null;
   }
-  throw new Error(`Project item "${name}" not found in root bin — import the fixtures first`);
+  const found = await walk(root, 0);
+  if (!found) throw new Error(`Project item "${name}" not found anywhere in project — import the fixtures first`);
+  return found;
 }
 
 // Execute actions inside a locked transaction. [Unverified] exact signature —
@@ -111,8 +150,8 @@ async function execute(project, name, buildActions) {
 
 async function getVideoTrackItems(sequence, vIndex) {
   const track = await sequence.getVideoTrack(vIndex);
-  // 1 = trackItemType clip [Unverified — probe]; false = skip empty items
-  const items = await track.getTrackItems(1, false);
+  const clipType = ppro.Constants?.TrackItemType?.CLIP ?? 1;
+  const items = await track.getTrackItems(clipType, false);
   return items;
 }
 
@@ -137,6 +176,32 @@ async function probe() {
     const ti = items[0];
     info("trackItem proto: " + Object.getOwnPropertyNames(Object.getPrototypeOf(ti)).join(", "));
   }
+  const cam1 = await findNoLog(project, "cam1.mp4");
+  if (cam1) {
+    info("cam1 projectItem proto: " + Object.getOwnPropertyNames(Object.getPrototypeOf(cam1)).join(", "));
+    if (ppro.ClipProjectItem?.cast) {
+      try {
+        const clip = ppro.ClipProjectItem.cast(cam1);
+        info("ClipProjectItem proto: " + Object.getOwnPropertyNames(Object.getPrototypeOf(clip)).join(", "));
+      } catch (e) { info("ClipProjectItem.cast failed: " + e.message); }
+    }
+  }
+  info("TrackItemSelection statics: " + Object.getOwnPropertyNames(ppro.TrackItemSelection).join(", "));
+}
+
+async function findNoLog(project, name) {
+  const root = await project.getRootItem();
+  async function walk(bin) {
+    for (const item of await bin.getItems()) {
+      if (item.name === name) return item;
+      let f = null;
+      if (typeof item.getItems === "function") f = item;
+      else if (ppro.FolderItem?.cast) { try { f = ppro.FolderItem.cast(item); } catch {} }
+      if (f) { const r = await walk(f).catch(() => null); if (r) return r; }
+    }
+    return null;
+  }
+  return walk(root);
 }
 
 // ---------- 1. build synced test sequence ----------
@@ -226,9 +291,35 @@ function intervals() {
   return out;
 }
 
+// ---------- clear a video track ----------
+async function clearVideoTrack(project, sequence, vIndex) {
+  const editor = await ppro.SequenceEditor.getEditor(sequence);
+  const items = await getVideoTrackItems(sequence, vIndex);
+  if (!items.length) return;
+  let sel;
+  try {
+    sel = ppro.TrackItemSelection.createEmptySelection(sequence);
+    info("createEmptySelection(sequence) worked");
+  } catch (e) {
+    err("createEmptySelection(sequence): " + e.message + " — trying via sequence.getSelection()");
+    sel = await sequence.getSelection();
+  }
+  info("selection proto: " + Object.getOwnPropertyNames(Object.getPrototypeOf(sel)).join(", "));
+  for (const ti of items) {
+    try { sel.addItem(ti); }
+    catch (e) { err("sel.addItem(ti): " + e.message); throw e; }
+  }
+  const mt = ppro.Constants?.MediaType?.VIDEO ?? 1;
+  await execute(project, `clear V${vIndex + 1} (${items.length} items)`, () => [
+    editor.createRemoveItemsAction(sel, false, mt, false),
+  ]);
+}
+
 // ---------- 3a. Method A: segmented overwrite onto V4 ----------
-// Places each chosen camera segment onto a single assembly track (V4) above
-// the stacked sources, trimming after placement. Leaves V1-V3 untouched.
+// 3-point-edit model: set source in/out on the ClipProjectItem first, then
+// overwrite-place at the interval start. Found in the first run: trimming a
+// placed item with createSetInPointAction MOVES it and lands off-frame by a
+// 29.97/30 factor — never trim source after placement.
 async function methodA() {
   info("=== Method A: segmented overwrite assembly onto V4 ===");
   const { project, sequence } = await getActive();
@@ -237,21 +328,24 @@ async function methodA() {
   const cams = [];
   for (let i = 1; i <= 3; i++) cams.push(await findProjectItem(project, `cam${i}.mp4`));
 
+  await clearVideoTrack(project, sequence, 3);
+
   for (const iv of intervals()) {
     const startT = frameToTickTime(iv.start);
     const endT = frameToTickTime(iv.end);
     const item = cams[iv.camera - 1];
-
-    // Overwrite full clip at interval start on V4 (index 3) …
-    await execute(project, `A: place cam${iv.camera} at frame ${iv.start}`, () => [
+    const clip = ppro.ClipProjectItem.cast(item);
+    await execute(project, `A: source in/out ${iv.start}..${iv.end} on cam${iv.camera}`, () => [
+      clip.createSetInOutPointsAction(startT, endT),
+    ]);
+    await execute(project, `A: overwrite cam${iv.camera} at frame ${iv.start}`, () => [
       editor.createOverwriteItemAction(item, startT, 3, -1),
     ]);
-    // … then trim the just-placed item to the interval.
-    const items = await getVideoTrackItems(sequence, 3);
-    const placed = items[items.length - 1]; // [Unverified] ordering; probe confirms
-    await execute(project, `A: trim segment to ${iv.start}..${iv.end}`, () => [
-      placed.createSetInPointAction(startT), // source in = timeline pos (cams are synced from 0)
-      placed.createSetEndAction(endT),
+  }
+  for (let i = 0; i < 3; i++) {
+    const clip = ppro.ClipProjectItem.cast(cams[i]);
+    await execute(project, `A: clear in/out on cam${i + 1}`, () => [
+      clip.createClearInOutPointsAction(),
     ]);
   }
   ok("Method A applied to V4. Solo V4 and run verify.");
@@ -333,18 +427,18 @@ async function verify() {
       continue; // track may not exist (e.g. no V4 unless Method A ran)
     }
     for (const ti of items) {
-      const s = tickTimeToFrame(await ti.getStartTime());
-      const e = tickTimeToFrame(await ti.getEndTime());
+      const st = await ti.getStartTime();
+      const et = await ti.getEndTime();
+      const ip = await ti.getInPoint?.();
+      const s = tickTimeToFrame(st);
+      const e = tickTimeToFrame(et);
       const sErr = Math.abs(s - Math.round(s));
       const eErr = Math.abs(e - Math.round(e));
       worst = Math.max(worst, sErr, eErr);
-      const onMap =
-        CUTS.some((c) => c.frame === Math.round(s)) ||
-        Math.round(s) === 0 || Math.round(e) === TOTAL_FRAMES;
       info(
         `V${v + 1} item ${s.toFixed(4)}..${e.toFixed(4)} ` +
-        `(sub-frame err ${Math.max(sErr, eErr).toExponential(2)})` +
-        (onMap ? "" : "  ← NOT ON CUT MAP")
+        `startTicks=${st.ticks} mod=${Number(st.ticks) % TICKS_PER_FRAME} ` +
+        `inTicks=${ip ? ip.ticks : "?"}`
       );
     }
   }
@@ -352,6 +446,17 @@ async function verify() {
   info("API readback is necessary but not sufficient: also step the playhead to");
   info("frames 450 / 8991 / 17500 and confirm the burned-in FRAME number matches");
   info("and the 30s flash stays aligned with the beep late in the timeline.");
+}
+
+// ---------- 5. cycle playhead through checkpoints ----------
+const CHECKPOINTS = [450, 8991, 17500];
+let cpIndex = 0;
+async function gotoNextCheckpoint() {
+  const { sequence } = await getActive();
+  const f = CHECKPOINTS[cpIndex % CHECKPOINTS.length];
+  cpIndex++;
+  await sequence.setPlayerPosition(frameToTickTime(f));
+  info(`playhead set to frame ${f} — program monitor must show FRAME ${f}`);
 }
 
 // ---------- wiring ----------
@@ -367,6 +472,7 @@ bind("btnMethodA", methodA);
 bind("btnMethodB", methodB);
 bind("btnMethodC", methodC);
 bind("btnVerify", verify);
+bind("btnCheckpoint", gotoNextCheckpoint);
 document.getElementById("btnClear").addEventListener("click", () => (logEl.textContent = ""));
 
 info("M0 spike panel loaded. Run 0 (probe) first; paste its output back into the session.");

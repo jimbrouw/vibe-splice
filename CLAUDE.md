@@ -136,8 +136,26 @@ LLM behaviour (crosstalk and reaction detection) is probabilistic and varies by 
 
 ## Spike status
 
-M0 timeline-write spike: UNRESOLVED. Do not build the product until this is filled in.
+M0 timeline-write spike: **RESOLVED 2026-06-11**. Product may be built on this.
 
-Winning apply method: (to be set)
-Exact API call sequence: (to be set)
-Drift result on 10-minute 3-cam fixture: (to be set)
+Winning apply method: **Method A — segmented overwrite assembly (3-point edit)**.
+Per cut interval: `ClipProjectItem.cast(item).createSetInOutPointsAction(inT, outT)`
+then `SequenceEditor.createOverwriteItemAction(item, startT, vTrack, -1)`, each
+inside `project.lockedAccess(() => project.executeTransaction(...))`. TickTimes
+built once per cut from integer ticks (8,475,667,200 ticks per 29.97 frame) via
+`TickTime.createWithTicks(String(frame * ticksPerFrame))`.
+
+Exact API call sequence: see "M0 spike report" in CONTEXT.md.
+
+Drift result on 10-minute 3-cam fixture: zero sub-frame error on all 12
+boundaries (API readback) and frame-exact picture at checkpoints 450 / 8991 /
+17500 (burned-in counters). No growing drift.
+
+Hard constraints discovered (must hold in the apply adapter):
+1. Sequence timebase MUST match footage rate — a 25 fps sequence quantised all
+   placements to its grid (≤0.45-frame jitter). Verify `sequence.getTimebase()`
+   or create the sequence from the footage.
+2. Never trim a placed trackItem's in point — it moves the item. Set source
+   in/out on the ClipProjectItem BEFORE overwrite.
+3. `TrackItemSelection.createEmptySelection()` is unusable; build selections
+   from `sequence.getSelection()`.
