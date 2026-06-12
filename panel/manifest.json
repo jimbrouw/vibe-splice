@@ -23,10 +23,10 @@
       "type": "panel",
       "id": "vibesplice",
       "label": { "default": "Vibe Splice" },
-      "minimumSize": { "width": 280, "height": 400 },
+      "minimumSize": { "width": 320, "height": 540 },
       "maximumSize": { "width": 1200, "height": 2000 },
-      "preferredDockedSize": { "width": 380, "height": 600 },
-      "preferredFloatingSize": { "width": 380, "height": 600 }
+      "preferredDockedSize": { "width": 380, "height": 820 },
+      "preferredFloatingSize": { "width": 380, "height": 820 }
     }
   ]
 }

@@ -16,12 +16,18 @@
       --accent2: #1a6abf;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
     body {
       font-family: "Adobe Clean", system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       font-size: 12px;
       padding: 10px;
+      /* Flex column: fixed-size controls on top, the log absorbs whatever
+         height remains — the panel reads correctly at any window size. */
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
     }
 
     /* ── header ── */
@@ -169,6 +175,7 @@
       font-size: 11px;
       font-family: inherit;
       min-width: 0;
+      height: 28px; /* UXP: an unconstrained input outside a flex row balloons */
     }
     .sug-row {
       display: flex;
@@ -209,7 +216,8 @@
       background: var(--bg2);
       border: 1px solid var(--border);
       border-radius: 4px;
-      height: 220px;
+      flex: 1 1 120px;     /* absorb leftover height; never collapse below ~120px */
+      min-height: 120px;
       overflow-y: auto;
       white-space: pre-wrap;
       font-family: monospace;
@@ -268,7 +276,7 @@
     </select>
     <input type="text" id="dirModel" placeholder="model (default)">
   </div>
-  <input type="password" id="dirKey" placeholder="API key (stored locally)">
+  <div class="dir-row"><input type="password" id="dirKey" placeholder="API key (stored locally)"></div>
   <button id="btnSuggest" disabled>Get Director Suggestions</button>
   <div id="sugList"></div>
   <button class="primary" id="btnApplySugs" style="display:none">Apply Selected</button>
