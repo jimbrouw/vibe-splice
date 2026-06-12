@@ -263,6 +263,20 @@ async function applyCutMap(cuts, totalFrames, det, onProgress) {
   await assertTimebase(source);
 
   const sequence = await cloneToNewSequence(project, source);
+
+  // Rename the clone: Premiere names clones "X Copy Copy …". The rename
+  // lives on the sequence's ProjectItem (createSetNameAction), not Sequence.
+  const newName = `${source.name} — Vibe Splice`;
+  try {
+    const seqItem = await sequence.getProjectItem();
+    await execute(project, "rename clone", () => [
+      seqItem.createSetNameAction(newName),
+    ]);
+    logInfo(`clone renamed to "${newName}"`);
+  } catch (e) {
+    logInfo(`rename failed (${e.message}) — keeping "${sequence.name}"`);
+  }
+
   const editor   = await ppro.SequenceEditor.getEditor(sequence);
   const cams     = det.sources.map((s) => s.projItem);
 
@@ -428,7 +442,15 @@ function setSidecarStatus(ok) {
   $sidecarDot.className   = "dot" + (ok ? " online" : "");
   $sidecarLabel.textContent = ok ? "Sidecar online" : "Sidecar offline";
   $sidecarLabel.className   = ok ? "online" : "";
+  if (ok) resetStartButton(); // sidecar came up — clear any "Starting…" state
   updateRunButton();
+}
+
+let startResetTimer = null;
+function resetStartButton() {
+  clearTimeout(startResetTimer);
+  $btnStart.textContent = "Start";
+  $btnStart.disabled = state.running;
 }
 
 function renderCamList(sources) {
@@ -498,11 +520,22 @@ pollSidecar(); // immediate first check
 
 // ── Event handlers ────────────────────────────────────────────────────────────
 $btnStart.addEventListener("click", async () => {
+  $btnStart.textContent = "Starting…";
+  $btnStart.disabled = true;
+  // If the sidecar never comes up (blocked permission, missing venv), give
+  // the button back after 20 s so the user can retry.
+  clearTimeout(startResetTimer);
+  startResetTimer = setTimeout(resetStartButton, 20000);
   logInfo("Trying to open sidecar/start.command…");
   await openSidecar();
 });
 
 $btnDetect.addEventListener("click", async () => {
+  // Queued clicks dispatch even if the button was disabled after the click
+  // was generated — state check is the real guard (found in smoke test:
+  // a rapid second click ran Detect concurrently with the pipeline and
+  // mutated the FPS globals mid-apply).
+  if (state.running) return;
   $btnDetect.disabled = true;
   hideHint();
   try {
