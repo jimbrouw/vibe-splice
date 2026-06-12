@@ -73,3 +73,41 @@ def test_analyze_rejects_missing_file():
         "total_frames": 100,
     })
     assert resp.status_code == 422
+
+
+def test_director_endpoint_mock_roundtrip():
+    """/director with the mock provider on the fixture schedule, then
+    /director/merge with everything accepted -> a valid, changed cut map."""
+    client = TestClient(app)
+    schedule_path = str(Path(__file__).parent / "fixtures" / "speech_schedule.json")
+    cuts = [{"frame": 0, "camera": 1}, {"frame": 450, "camera": 2},
+            {"frame": 1200, "camera": 3}]
+    body = {
+        "cuts": cuts, "total_frames": 17982,
+        "fps_numerator": 30000, "fps_denominator": 1001,
+        "n_cameras": 3, "provider": "mock",
+        "transcript_source": "synthetic", "schedule_path": schedule_path,
+    }
+    r = client.post("/director", json=body)
+    assert r.status_code == 200, r.text
+    sugs = r.json()["suggestions"]
+    assert sugs, "mock should suggest something on the fixture schedule"
+
+    r2 = client.post("/director/merge", json={
+        "cuts": cuts, "total_frames": 17982,
+        "fps_numerator": 30000, "fps_denominator": 1001,
+        "accepted": sugs,
+    })
+    assert r2.status_code == 200, r2.text
+    merged = r2.json()
+    frames = [c["frame"] for c in merged["cuts"]]
+    assert frames == sorted(frames) and frames[0] == 0
+
+
+def test_director_whisper_not_implemented():
+    r = TestClient(app).post("/director", json={
+        "cuts": [{"frame": 0, "camera": 1}], "total_frames": 100,
+        "fps_numerator": 30000, "fps_denominator": 1001, "n_cameras": 2,
+        "provider": "mock", "transcript_source": "whisper",
+    })
+    assert r.status_code == 501

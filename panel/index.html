@@ -149,6 +149,46 @@
       margin-top: 3px;
     }
 
+    /* ── director ── */
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 8px 0 4px;
+    }
+    .dir-row { display: flex; gap: 4px; margin: 4px 0; }
+    select, input[type="text"], input[type="password"] {
+      flex: 1;
+      background: var(--bg2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 5px 6px;
+      font-size: 11px;
+      font-family: inherit;
+      min-width: 0;
+    }
+    .sug-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 5px 6px;
+      background: var(--bg2);
+      border-radius: 3px;
+      margin-bottom: 2px;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .sug-row input[type="checkbox"] { margin-top: 2px; flex: none; }
+    .sug-action {
+      color: var(--info);
+      font-weight: 600;
+      flex: none;
+    }
+    .sug-reason { color: var(--dim); }
+
     /* ── open-sequence hint ── */
     #openHint {
       background: #1d2d1d;
@@ -214,6 +254,24 @@
 
   <!-- open-sequence hint (Task 3: cosmetic gap) -->
   <div id="openHint"></div>
+
+  <hr>
+
+  <!-- Director tier (BYOT) — suggestions are reviewable, never auto-applied -->
+  <div class="section-title">Director (BYOT)</div>
+  <div class="dir-row">
+    <select id="dirProvider">
+      <option value="mock">Mock (offline)</option>
+      <option value="anthropic">Anthropic</option>
+      <option value="openai">OpenAI</option>
+      <option value="gemini">Gemini</option>
+    </select>
+    <input type="text" id="dirModel" placeholder="model (default)">
+  </div>
+  <input type="password" id="dirKey" placeholder="API key (stored locally)">
+  <button id="btnSuggest" disabled>Get Director Suggestions</button>
+  <div id="sugList"></div>
+  <button class="primary" id="btnApplySugs" style="display:none">Apply Selected</button>
 
   <hr>
 

@@ -36,6 +36,12 @@ const $progressFill = document.getElementById("progressFill");
 const $progressLabel= document.getElementById("progressLabel");
 const $openHint     = document.getElementById("openHint");
 const $log          = document.getElementById("log");
+const $dirProvider  = document.getElementById("dirProvider");
+const $dirModel     = document.getElementById("dirModel");
+const $dirKey       = document.getElementById("dirKey");
+const $btnSuggest   = document.getElementById("btnSuggest");
+const $sugList      = document.getElementById("sugList");
+const $btnApplySugs = document.getElementById("btnApplySugs");
 
 // ── App state ─────────────────────────────────────────────────────────────────
 const state = {
@@ -43,6 +49,10 @@ const state = {
   sources: null,    // array from detectSources(), or null
   totalFrames: 0,
   running: false,
+  // Last successful base run — the Director operates on this, never on a
+  // sequence it hasn't seen. {cuts, totalFrames, det}
+  lastRun: null,
+  suggestions: [],
 };
 
 // ── Logging ───────────────────────────────────────────────────────────────────
@@ -257,7 +267,7 @@ async function detectSourcesFromSequence() {
 //   srcIn  = timeline_frame − offsetFrames   (media frame, not timeline frame)
 //   srcOut = interval_end  − offsetFrames
 // Clamped to [0, mediaEndFrame]; intervals with no media coverage are skipped.
-async function applyCutMap(cuts, totalFrames, det, onProgress) {
+async function applyCutMap(cuts, totalFrames, det, onProgress, label = "") {
   const targetTrack = det.target;
   const { project, sequence: source } = await getActive();
   await assertTimebase(source);
@@ -266,7 +276,9 @@ async function applyCutMap(cuts, totalFrames, det, onProgress) {
 
   // Rename the clone: Premiere names clones "X Copy Copy …". The rename
   // lives on the sequence's ProjectItem (createSetNameAction), not Sequence.
-  const newName = `${source.name} — Vibe Splice`;
+  // Strip a prior suffix so Director re-applies don't stack " — Vibe Splice".
+  const baseName = source.name.replace(/ — Vibe Splice( · Director)?$/, "");
+  const newName = `${baseName} — Vibe Splice${label ? ` · ${label}` : ""}`;
   try {
     const seqItem = await sequence.getProjectItem();
     await execute(project, "rename clone", () => [
@@ -426,6 +438,12 @@ async function runPipeline() {
     // but does NOT open its timeline in the program monitor. Tell the user.
     showHint(seqName);
 
+    // The Director refines THIS run. Stale suggestions die with the run.
+    state.lastRun = { cuts: map.cuts, totalFrames: map.total_frames, det };
+    state.suggestions = [];
+    renderSuggestions([]);
+    updateDirectorButtons();
+
   } catch (e) {
     logErr(e.message || String(e));
     setProgress("", 0);
@@ -444,6 +462,7 @@ function setSidecarStatus(ok) {
   $sidecarLabel.className   = ok ? "online" : "";
   if (ok) resetStartButton(); // sidecar came up — clear any "Starting…" state
   updateRunButton();
+  updateDirectorButtons();
 }
 
 let startResetTimer = null;
@@ -474,7 +493,9 @@ function updateRunButton() {
 function setRunning(running) {
   $btnDetect.disabled = running;
   $btnStart.disabled  = running;
+  $btnApplySugs.disabled = running;
   updateRunButton();
+  updateDirectorButtons();
   if (running) {
     $progressWrap.style.display = "block";
   }
@@ -505,6 +526,135 @@ function showHint(seqName) {
 
 function hideHint() {
   $openHint.style.display = "none";
+}
+
+// ── Director tier (BYOT) ──────────────────────────────────────────────────────
+// The sidecar sends the LLM transcript text keyed by segment_id; frames stay
+// with deterministic code. Suggestions land here as a review checklist —
+// nothing is applied until the user clicks Apply Selected.
+
+function updateDirectorButtons() {
+  $btnSuggest.disabled = !(state.sidecarOk && state.lastRun && !state.running);
+}
+
+// Synthetic-transcript heuristic for the fixture era: the speech schedule
+// sits next to the camera media. Whisper replaces this with real footage.
+function schedulePathFor(det) {
+  const p = det.sources[0].path;
+  return p.slice(0, p.lastIndexOf("/")) + "/speech_schedule.json";
+}
+
+async function getSuggestions() {
+  const run = state.lastRun;
+  if (!run) return;
+  const provider = $dirProvider.value;
+  const body = {
+    cuts: run.cuts,
+    total_frames: run.totalFrames,
+    fps_numerator: FPS_NUM,
+    fps_denominator: FPS_DEN,
+    n_cameras: run.det.sources.length,
+    provider,
+    api_key: $dirKey.value.trim(),
+    model: $dirModel.value.trim(),
+    transcript_source: "synthetic",
+    schedule_path: schedulePathFor(run.det),
+  };
+  if (provider !== "mock" && !body.api_key) {
+    logErr(`${provider} needs an API key`);
+    return;
+  }
+  $btnSuggest.disabled = true;
+  $btnSuggest.textContent = "Asking the Director…";
+  try {
+    const resp = await fetch(`${SIDECAR}/director`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      logErr(`director ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+      return;
+    }
+    const data = await resp.json();
+    state.suggestions = data.suggestions;
+    if (data.dropped) logInfo(`${data.dropped} malformed suggestion(s) dropped`);
+    logOk(`${data.suggestions.length} suggestion(s) from ${provider}`);
+    renderSuggestions(data.suggestions);
+  } catch (e) {
+    logErr("director: " + (e.message || String(e)));
+  } finally {
+    $btnSuggest.textContent = "Get Director Suggestions";
+    updateDirectorButtons();
+  }
+}
+
+function renderSuggestions(sugs) {
+  if (!sugs.length) {
+    $sugList.innerHTML = "";
+    $btnApplySugs.style.display = "none";
+    return;
+  }
+  $sugList.innerHTML = sugs.map((s, i) => `
+    <label class="sug-row">
+      <input type="checkbox" data-idx="${i}" checked>
+      <span class="sug-action">${s.action === "reaction" ? "REACT" : "SWITCH"}</span>
+      <span>@${s.frame} cam${s.old_camera}→cam${s.new_camera}
+        <span class="sug-reason">${s.reason}</span></span>
+    </label>
+  `).join("");
+  $btnApplySugs.style.display = "block";
+}
+
+async function applySelectedSuggestions() {
+  const run = state.lastRun;
+  if (!run || state.running) return;
+  const accepted = [];
+  $sugList.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+    if (cb.checked) accepted.push(state.suggestions[Number(cb.dataset.idx)]);
+  });
+  if (!accepted.length) { logInfo("nothing selected"); return; }
+
+  state.running = true;
+  setRunning(true);
+  hideHint();
+  try {
+    setProgress("Merging suggestions…", null);
+    const resp = await fetch(`${SIDECAR}/director/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cuts: run.cuts,
+        total_frames: run.totalFrames,
+        fps_numerator: FPS_NUM,
+        fps_denominator: FPS_DEN,
+        accepted,
+      }),
+    });
+    if (!resp.ok) {
+      logErr(`merge ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+      return;
+    }
+    const merged = await resp.json();
+    if (merged.skipped) logInfo(`${merged.skipped} suggestion(s) skipped by merge guards`);
+    logInfo(`Applying Director cut: ${merged.cuts.length} cuts…`);
+    const seqName = await applyCutMap(
+      merged.cuts, merged.total_frames, run.det,
+      (msg, frac) => setProgress(msg, frac), "Director",
+    );
+    setProgress("Done", 1.0);
+    logOk(`Director cut applied to "${seqName}".`);
+    showHint(seqName);
+    state.lastRun = { cuts: merged.cuts, totalFrames: merged.total_frames, det: run.det };
+    state.suggestions = [];
+    renderSuggestions([]);
+  } catch (e) {
+    logErr(e.message || String(e));
+  } finally {
+    state.running = false;
+    setRunning(false);
+    updateDirectorButtons();
+  }
 }
 
 // ── Sidecar health poll ───────────────────────────────────────────────────────
@@ -564,6 +714,34 @@ document.getElementById("btnClearLog").addEventListener("click", () => {
   $log.textContent = "";
   logLines = [];
 });
+
+$btnSuggest.addEventListener("click", () => {
+  getSuggestions().catch((e) => logErr("UNCAUGHT: " + (e?.message ?? String(e))));
+});
+
+$btnApplySugs.addEventListener("click", () => {
+  applySelectedSuggestions().catch((e) => logErr("UNCAUGHT: " + (e?.message ?? String(e))));
+});
+
+// Persist provider/model/key across reloads. The key lives in UXP-local
+// storage on this machine only — it is sent to the sidecar per request and
+// never logged (sidecar holds it in memory only).
+try {
+  const saved = JSON.parse(localStorage.getItem("vibesplice.director") || "{}");
+  if (saved.provider) $dirProvider.value = saved.provider;
+  if (saved.model) $dirModel.value = saved.model;
+  if (saved.key) $dirKey.value = saved.key;
+} catch { /* no localStorage in this UXP build — fields reset per session */ }
+function persistDirector() {
+  try {
+    localStorage.setItem("vibesplice.director", JSON.stringify({
+      provider: $dirProvider.value, model: $dirModel.value, key: $dirKey.value,
+    }));
+  } catch {}
+}
+$dirProvider.addEventListener("change", persistDirector);
+$dirModel.addEventListener("change", persistDirector);
+$dirKey.addEventListener("change", persistDirector);
 
 logInfo("Vibe Splice M2 panel loaded.");
 logInfo("1. Click Detect Sources to read the active sequence.");
