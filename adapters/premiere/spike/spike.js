@@ -443,7 +443,7 @@ async function applyCutMap(cuts, totalFrames, label, det = null) {
   try {
     if (typeof project.setActiveSequence === "function") {
       await project.setActiveSequence(sequence);
-      ok("new sequence made active");
+      ok("new sequence made API-active");
     } else {
       info("project proto: " + Object.getOwnPropertyNames(Object.getPrototypeOf(project)).join(", "));
     }
@@ -451,6 +451,10 @@ async function applyCutMap(cuts, totalFrames, label, det = null) {
     err("setActiveSequence: " + e.message);
   }
   ok(`${label}: applied to V4 of "${sequence.name}". Run verify.`);
+  // Cosmetic gap (E3 in CONTEXT.md): setActiveSequence changes the API-active
+  // sequence but does NOT open its timeline in the program monitor. The user
+  // must double-click the new sequence in the Project panel to view it.
+  info(`>>> Open the timeline: double-click "${sequence.name}" in the Project panel.`);
 }
 let lastAppliedSequence = null;
 let lastTargetTrack = 3;

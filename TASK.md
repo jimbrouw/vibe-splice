@@ -72,14 +72,64 @@ Done (offset edge cases, same day):
   cam2 segment placed at frame F reads source F−90 (checked across the
   transaction log); zero sub-frame error, exact map match
 
+Done (offset edge cases, same day):
+- Found+fixed a real bug in the apply path: source in/out were set to
+  TIMELINE frames, only correct at offset 0. Now source = timeline − offset,
+  clamped to the media span ([0, mediaEndFrame]), intervals with no media
+  skipped with a logged warning
+- Live-verified with a rigged sequence: cam2 trimmed-in (inPoint 60) AND
+  placed at frame 150 (offset +90). Detection reported offset 90f; every
+  cam2 segment placed at frame F reads source F−90 (checked across the
+  transaction log); zero sub-frame error, exact map match
+
+Done (handover, same day):
+- HANDOVER.md written: repo layout, env setup, panel load instructions,
+  architecture summary, key invariants, known issues, next milestones
+
+## Milestone: M2 productization — IN PROGRESS (started 2026-06-11)
+
+Done:
+- `/panel/` created: clean Spectrum-styled HTML panel (no build step),
+  production-quality JS replacing throwaway spike code
+  - Sidecar health indicator (green/red dot, polls /health every 3 s)
+  - Start Sidecar button: opens `sidecar/start.command` in Terminal via
+    `uxp.shell.openPath()`, navigating to the repo root from plugin folder
+  - Detect Sources button: reads cameras/offsets/fps from active sequence
+  - Analyze & Apply button: POST /analyze → Method A apply with progress bar
+  - Full offset-corrected apply path ported from spike (srcIn = timeline − offset)
+  - All hard rules honoured: tick-accurate time, non-destructive clone, E5 guard
+- Cosmetic gap fixed (task 3): after apply, both the new panel and spike.js
+  show an explicit "double-click '[name]' in the Project panel" instruction.
+  Panel shows a persistent green hint box; spike logs an info line.
+- `sidecar/start.command` created (macOS double-click to start uvicorn in Terminal)
+- `sidecar/requirements.txt` was already present (fastapi, uvicorn, numpy, pytest, httpx)
+
+Done (live smoke test, 2026-06-12) — M2 PANEL VERIFIED IN PREMIERE:
+- Loaded via UDT (com.vibesplice.panel), full pass of panel/SMOKE-TEST.md:
+  boot, health poll, Detect Sources (3 cams incl. 90f offset), Analyze &
+  Apply (50 cuts, E5 pass, clone created, source untouched), done-hint box,
+  Start-button sidecar launch with auto-green dot
+- 3 real bugs found+fixed live (new BANANAS classes E9, E10):
+  - `AbortSignal.timeout` doesn't exist in UXP → health poll always failed;
+    replaced with a Promise.race timeout
+  - `Entry.getNativePath()` is not a function → use `.nativePath` property
+  - `shell.openPath` rejects with `undefined` without `launchProcess`
+    manifest permission; first run shows a Premiere Allow/Block dialog
+- Smoke-test checklist written: panel/SMOKE-TEST.md (negative tests for
+  detection + E5 not yet exercised this pass — run on next session)
+
 Next:
-1. Real 3-cam footage regression (footage arrives week of 2026-06-15) —
-   the detected path (button 8) should work on it unchanged
-2. Promote spike learnings into /panel + /adapters/premiere proper (M2):
-   React+Spectrum panel, sidecar lifecycle management, progress UI
-3. Known cosmetic gap: `setActiveSequence` changes the API-active sequence
-   but does NOT open its timeline/program monitor — M2 panel should tell
-   the user to open the new sequence (or find an open-timeline API)
+1. **Real footage regression** (~2026-06-15): load real 3-cam recording,
+   run Analyze & Apply in the new panel. Expected to work unchanged; tune
+   `min_shot_s` / VAD ratios via request body if needed.
+2. **Run SMOKE-TEST.md negative tests**: non-multicam sequence detection
+   error, 25 fps E5 refusal, double-click running guard.
+3. **Clone naming**: clones inherit "Copy Copy Copy…" names — name the
+   output sequence (e.g. "<source> — Vibe Splice") at clone time.
+4. **Sidecar stop**: no UXP API to kill a process; consider bundling a stop
+   script or documenting that the Terminal window must be closed manually.
+5. **Find open-timeline API**: confirm no UXP method exists to open a sequence
+   in the program monitor; update BANANAS.md if confirmed.
 
 ## Blocked on
-- Real footage (next week)
+- Real footage (~2026-06-15)

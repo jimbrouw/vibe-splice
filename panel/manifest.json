@@ -1,0 +1,32 @@
+{
+  "id": "com.vibesplice.panel",
+  "name": "Vibe Splice",
+  "version": "0.2.0",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": {
+    "app": "premierepro",
+    "minVersion": "25.0"
+  },
+  "requiredPermissions": {
+    "localFileSystem": "request",
+    "network": {
+      "domains": "all"
+    },
+    "launchProcess": {
+      "schemes": ["file"],
+      "extensions": [".command"]
+    }
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "vibesplice",
+      "label": { "default": "Vibe Splice" },
+      "minimumSize": { "width": 280, "height": 400 },
+      "maximumSize": { "width": 1200, "height": 2000 },
+      "preferredDockedSize": { "width": 380, "height": 600 },
+      "preferredFloatingSize": { "width": 380, "height": 600 }
+    }
+  ]
+}
