@@ -31,9 +31,11 @@ First full pass: 2026-06-12, all steps green (see TASK.md).
       per-cam offsets in frames
 - [ ] Log shows camera count, total frames, target track, FPS rational
 - [ ] Offsets match the sequence (trimmed/shifted cam shows non-zero offset)
-- [ ] Negative test: activate a non-multicam sequence (e.g. a music-only or
-      single-track sequence) → clear error "need ≥2 synced single-clip video
-      tracks", no crash
+- [ ] Negative test: activate a non-multicam sequence → clear error "need ≥2
+      synced single-clip video tracks", no crash.
+      NOTE (2026-06-12): "04 Music" is NOT a valid negative case — it is the
+      25 fps 3-cam rig from the M0 E5 test and detects as a multicam. Build a
+      true negative (e.g. New Sequence From Clip on audio_bed.wav).
 
 ### 4. Pipeline (Analyze & Apply)
 - [ ] Progress bar animates: indeterminate during detect/analyze, then
@@ -46,8 +48,17 @@ First full pass: 2026-06-12, all steps green (see TASK.md).
       Project panel to open the timeline."
 - [ ] Open the clone: assembly track holds the cut segments; spot-check a
       burned-in frame number against the playhead (fixtures only)
-- [ ] E5 negative test: activate a 25 fps sequence → refused with the
-      timebase-mismatch error BEFORE any clone is created
+- [ ] Mixed-rate run (PASSED 2026-06-12): a 25 fps multicam sequence with
+      29.97 media runs end-to-end correctly — the panel derives fps from the
+      sequence, so the whole pipeline is consistent at the sequence rate.
+      Bonus finding: the audio bed outlasting the video media exercised the
+      tail-clamp/skip path organically (clamped intervals logged, impossible
+      intervals skipped with ERR, run completed).
+      NOTE: the E5 guard cannot fire in the panel flow (fps comes FROM the
+      active sequence); it protects only the detect→apply race where the
+      user switches sequences mid-run. Don't write a test expecting E5 to
+      refuse a 25 fps sequence — that was spike-era behaviour with a
+      hardcoded 29.97 cut map.
 
 ### 5. Resilience
 - [ ] Kill the sidecar (`pkill -f "uvicorn app:app"`) → dot returns to RED

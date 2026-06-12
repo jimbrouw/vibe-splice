@@ -122,13 +122,14 @@ Next:
 1. **Real footage regression** (~2026-06-15): load real 3-cam recording,
    run Analyze & Apply in the new panel. Expected to work unchanged; tune
    `min_shot_s` / VAD ratios via request body if needed.
-2. **Run SMOKE-TEST.md negative tests**: non-multicam sequence detection
-   error, 25 fps E5 refusal. (Double-click guard: race found and fixed
-   2026-06-12 — queued clicks bypass `disabled`; state check added.)
-3. **Verify clone rename live**: coded via
-   `sequence.getProjectItem().createSetNameAction(name)` (API confirmed by
-   proto probe) but the call itself not yet exercised — run one pipeline
-   pass and check the hint box says "<source> — Vibe Splice".
+2. **One remaining negative test**: detection error on a true non-multicam
+   sequence (build one — New Sequence From Clip on audio_bed.wav).
+   Done 2026-06-12 instead: double-click guard verified (1 run from 2 rapid
+   clicks); clone rename verified live ("04 Music — Vibe Splice"); mixed-rate
+   25 fps run passed end-to-end with the tail-clamp/skip path exercised
+   organically (audio bed outlasts video media). Learned: E5 cannot fire in
+   the panel flow — fps derives from the active sequence; it guards only the
+   detect→apply sequence-switch race. SMOKE-TEST.md updated accordingly.
 4. **Sidecar stop**: no UXP API to kill a process; consider bundling a stop
    script or documenting that the Terminal window must be closed manually.
 5. **Find open-timeline API**: confirm no UXP method exists to open a sequence
