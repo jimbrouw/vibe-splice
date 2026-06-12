@@ -135,5 +135,31 @@ Next:
 5. **Find open-timeline API**: confirm no UXP method exists to open a sequence
    in the program monitor; update BANANAS.md if confirmed.
 
+## Milestone: M3 Director tier — BUILT 2026-06-12, one UI click unverified
+
+Done:
+- `sidecar/director/`: segments.py (BYOT contract: LLM sees segment_id +
+  transcript text only, frames never leave deterministic code), gateway.py
+  (anthropic / openai / gemini / mock providers over httpx, strict JSON,
+  malformed suggestions dropped not patched), merge.py (switch recolours a
+  segment; reaction inserts a cutaway 40% in with min-shot guards on both
+  shoulders; output re-validated)
+- POST /director + /director/merge; synthetic transcript from
+  speech_schedule.json (fixtures are noise bursts — Whisper returns 501
+  until real footage)
+- Panel: Director (BYOT) section — provider/model/key persisted via
+  localStorage, accept/reject checklist, Apply Selected → new clone named
+  "<source> — Vibe Splice · Director"
+- 21 tests green (12 new); /director verified over HTTP with mock provider
+
+Next:
+1. Live-verify the panel Director flow (user was in Pages; UI driving
+   stopped): Analyze & Apply → Get Director Suggestions (Mock) → checklist
+   → Apply Selected. Then once with a real key (Anthropic/OpenAI/Gemini).
+2. Whisper ASR behind the TranscriptLine interface when footage arrives;
+   diarisation for the mono 20% case after that.
+3. Director prompt iteration on real transcripts — current prompt is v1,
+   untested against real speech. [Unverified] suggestion quality.
+
 ## Blocked on
 - Real footage (~2026-06-15)
