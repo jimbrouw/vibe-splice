@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    :root {
+      --bg:      #232323;
+      --bg2:     #1a1a1a;
+      --bg3:     #2e2e2e;
+      --border:  #444;
+      --text:    #ddd;
+      --dim:     #888;
+      --ok:      #6c6;
+      --err:     #e66;
+      --info:    #6af;
+      --accent:  #2680eb;
+      --accent2: #1a6abf;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Adobe Clean", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 12px;
+      padding: 10px;
+      /* Flex column: fixed-size controls on top, the log absorbs whatever
+         height remains — the panel reads correctly at any window size. */
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* ── header ── */
+    .header {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .header h3 { font-size: 14px; color: #fff; }
+    .header .version { font-size: 10px; color: var(--dim); }
+
+    /* ── divider ── */
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 8px 0;
+    }
+
+    /* ── sidecar status row ── */
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--err); flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.online { background: var(--ok); }
+    #sidecarLabel { flex: 1; font-size: 11px; color: var(--dim); }
+    #sidecarLabel.online { color: var(--ok); }
+
+    /* ── camera list ── */
+    #camList { margin: 6px 0; }
+    .cam-placeholder { color: var(--dim); font-size: 11px; padding: 4px 0; }
+    .cam-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 6px;
+      background: var(--bg2);
+      border-radius: 3px;
+      margin-bottom: 2px;
+      font-size: 11px;
+    }
+    .cam-badge {
+      background: var(--accent);
+      color: #fff;
+      border-radius: 2px;
+      padding: 0 4px;
+      font-size: 10px;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    .cam-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cam-offset { color: var(--dim); flex-shrink: 0; }
+
+    /* ── buttons ── */
+    button {
+      display: block;
+      width: 100%;
+      margin: 4px 0;
+      padding: 7px 10px;
+      background: var(--bg3);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: center;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    button:hover:not(:disabled) { background: #3a3a3a; border-color: #666; }
+    button:active:not(:disabled) { background: #444; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent2);
+      color: #fff;
+      font-weight: 600;
+    }
+    button.primary:hover:not(:disabled) { background: var(--accent2); }
+    button.small {
+      width: auto;
+      padding: 3px 8px;
+      font-size: 11px;
+      margin: 0;
+    }
+    button.ghost {
+      background: transparent;
+      border-color: transparent;
+      color: var(--dim);
+      font-size: 11px;
+    }
+    button.ghost:hover:not(:disabled) { color: var(--text); background: transparent; }
+
+    /* ── progress ── */
+    #progressWrap { margin: 6px 0; display: none; }
+    .progress-track {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #progressFill {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.25s ease;
+    }
+    #progressFill.indeterminate {
+      width: 35%;
+      animation: indeterminate 1.2s ease-in-out infinite;
+    }
+    @keyframes indeterminate {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    #progressLabel {
+      font-size: 10px;
+      color: var(--dim);
+      margin-top: 3px;
+    }
+
+    /* ── director ── */
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 8px 0 4px;
+    }
+    .dir-row { display: flex; gap: 4px; margin: 4px 0; }
+    select, input[type="text"], input[type="password"] {
+      flex: 1;
+      background: var(--bg2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 5px 6px;
+      font-size: 11px;
+      font-family: inherit;
+      min-width: 0;
+      height: 28px; /* UXP: an unconstrained input outside a flex row balloons */
+    }
+    .sug-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 5px 6px;
+      background: var(--bg2);
+      border-radius: 3px;
+      margin-bottom: 2px;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .sug-row input[type="checkbox"] { margin-top: 2px; flex: none; }
+    .sug-action {
+      color: var(--info);
+      font-weight: 600;
+      flex: none;
+    }
+    .sug-reason { color: var(--dim); }
+
+    /* ── open-sequence hint ── */
+    #openHint {
+      background: #1d2d1d;
+      border: 1px solid #3a6a3a;
+      border-radius: 4px;
+      padding: 7px 9px;
+      font-size: 11px;
+      color: var(--ok);
+      display: none;
+      margin: 4px 0;
+    }
+    #openHint strong { color: #fff; }
+
+    /* ── log ── */
+    #log {
+      margin-top: 6px;
+      padding: 6px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      flex: 1 1 120px;     /* absorb leftover height; never collapse below ~120px */
+      min-height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 10px;
+    }
+    .ok   { color: var(--ok); }
+    .err  { color: var(--err); }
+    .info { color: var(--info); }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h3>Vibe Splice</h3>
+    <span class="version">M2</span>
+  </div>
+
+  <!-- sidecar status -->
+  <div class="status-row">
+    <div class="dot" id="sidecarDot"></div>
+    <span id="sidecarLabel">Sidecar offline</span>
+    <button class="small" id="btnStart">Start</button>
+  </div>
+
+  <hr>
+
+  <!-- source list -->
+  <div id="camList">
+    <div class="cam-placeholder">No sources detected</div>
+  </div>
+
+  <button id="btnDetect">Detect Sources</button>
+  <button class="primary" id="btnRun" disabled>▶ Analyze &amp; Apply</button>
+
+  <!-- progress -->
+  <div id="progressWrap">
+    <div class="progress-track">
+      <div id="progressFill"></div>
+    </div>
+    <div id="progressLabel"></div>
+  </div>
+
+  <!-- open-sequence hint (Task 3: cosmetic gap) -->
+  <div id="openHint"></div>
+
+  <hr>
+
+  <!-- Director tier (BYOT) — suggestions are reviewable, never auto-applied -->
+  <div class="section-title">Director (BYOT)</div>
+  <div class="dir-row">
+    <select id="dirProvider">
+      <option value="mock">Mock (offline)</option>
+      <option value="anthropic">Anthropic</option>
+      <option value="openai">OpenAI</option>
+      <option value="gemini">Gemini</option>
+    </select>
+    <input type="text" id="dirModel" placeholder="model (default)">
+  </div>
+  <div class="dir-row"><input type="password" id="dirKey" placeholder="API key (stored locally)"></div>
+  <button id="btnSuggest" disabled>Get Director Suggestions</button>
+  <div id="sugList"></div>
+  <button class="primary" id="btnApplySugs" style="display:none">Apply Selected</button>
+
+  <hr>
+
+  <div id="log"></div>
+  <button class="ghost" id="btnClearLog">Clear log</button>
+
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -49,3 +49,23 @@ do UDT Unload + Load after any manifest edit.
 Symptom: action on an item fetched before a clone/remove acts on the wrong
 item or throws. [Inference, unconfirmed] Guard: re-query getTrackItems()
 after every mutating transaction; never reuse pre-transaction handles.
+
+## E9 — UXP JS runtime is missing modern web APIs (hit 2026-06-12)
+Symptom: a feature silently never works (sidecar health dot stayed red while
+the sidecar was demonstrably up). Cause: `AbortSignal.timeout()` does not
+exist in Premiere's UXP runtime — the call throws inside a try/catch and the
+handler swallows it. Same family: `Entry.getNativePath()` is not a function;
+the native path is the `nativePath` PROPERTY on UXP storage entries.
+Guard: never assume a web API exists in UXP. For fetch timeouts, race a
+setTimeout promise. For native paths, read `.nativePath`. When a try/catch
+wraps an API probe, log the caught error at least once instead of swallowing.
+
+## E10 — shell.openPath needs launchProcess permission + per-user consent (hit 2026-06-12)
+Symptom: `uxp.shell.openPath(path)` rejects with `undefined` as the error.
+Cause: manifest lacked `requiredPermissions.launchProcess`. After adding
+`"launchProcess": { "schemes": ["file"], "extensions": [".command"] }`
+(and UDT Unload+Load — see E8), Premiere shows a "Request For Permission"
+dialog naming the exact path, with Allow/Block and "Remember my choice".
+Guard: ship the permission in the manifest, and document the first-run
+dialog in user-facing setup steps — the panel's Start button does nothing
+visible if the user blocked it once with "remember" ticked.
