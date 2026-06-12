@@ -123,9 +123,12 @@ Next:
    run Analyze & Apply in the new panel. Expected to work unchanged; tune
    `min_shot_s` / VAD ratios via request body if needed.
 2. **Run SMOKE-TEST.md negative tests**: non-multicam sequence detection
-   error, 25 fps E5 refusal, double-click running guard.
-3. **Clone naming**: clones inherit "Copy Copy Copy…" names — name the
-   output sequence (e.g. "<source> — Vibe Splice") at clone time.
+   error, 25 fps E5 refusal. (Double-click guard: race found and fixed
+   2026-06-12 — queued clicks bypass `disabled`; state check added.)
+3. **Verify clone rename live**: coded via
+   `sequence.getProjectItem().createSetNameAction(name)` (API confirmed by
+   proto probe) but the call itself not yet exercised — run one pipeline
+   pass and check the hint box says "<source> — Vibe Splice".
 4. **Sidecar stop**: no UXP API to kill a process; consider bundling a stop
    script or documenting that the Terminal window must be closed manually.
 5. **Find open-timeline API**: confirm no UXP method exists to open a sequence
